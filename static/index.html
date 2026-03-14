@@ -434,10 +434,14 @@ let partialLine = '';
 
 function handleTranscript(msg) {
   if (msg.is_final) {
+    // Remove partial line first, then append final
+    if (partialLine) {
+      const lines = transcriptEl.value.split('\n').filter(l => l !== partialLine);
+      transcriptEl.value = lines.join('\n');
+    }
     partialLine = '';
     transcriptEl.value += (transcriptEl.value ? '\n' : '') + msg.text.trim();
   } else {
-    // Show rolling partial on last line
     const lines = transcriptEl.value.split('\n').filter(l => l !== partialLine);
     partialLine = msg.text.trim();
     transcriptEl.value = [...lines, partialLine].join('\n');

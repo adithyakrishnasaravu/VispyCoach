@@ -222,6 +222,16 @@ function sendMessage() {
 btnSend.addEventListener('click', sendMessage);
 replyInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
 
+// Press '/' anywhere to jump to reply input
+document.addEventListener('keydown', e => {
+  if (e.key === '/' && document.activeElement !== replyInput) {
+    e.preventDefault();
+    replyInput.focus();
+    replyInput.placeholder = 'Type strategy → Enter to send...';
+  }
+  if (e.key === 'Escape') replyInput.blur();
+});
+
 connect();
 </script>
 </body>

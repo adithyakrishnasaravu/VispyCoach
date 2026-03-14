@@ -18,7 +18,7 @@ from collections import deque
 import httpx
 import websockets
 from dotenv import load_dotenv
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -65,6 +65,74 @@ async def broadcast_to_management(payload: dict):
             dead.append(mgmt_ws)
     for d in dead:
         management_connections.remove(d)
+
+
+@app.post("/inject-transcript")
+async def inject_transcript(request: Request):
+    payload = await request.json()
+    """Dev endpoint: inject a text line directly into the emotion/escalation pipeline."""
+    text = payload.get("text", "").strip() if payload else ""
+    if not text:
+        return {"status": "empty"}
+    ws = active_rep["ws"]
+    if ws is None:
+        return {"status": "no_rep_connected"}
+
+    emotions, stress = analyze_text(text)
+    active_rep["transcript"].append(text)
+
+    await ws.send_text(json.dumps({"type": "transcript", "text": text, "is_final": True}))
+    await ws.send_text(json.dumps({"type": "emotion", "emotions": emotions, "stress": int(min(100, stress * 15))}))
+
+    objection_patterns = [
+        r"\b(not interested|no longer interested)\b",
+        r"\b(too expensive|can.t afford|no budget|out of budget)\b",
+        r"\b(going with|switching to|already using|chose another)\b",
+        r"\b(cancel|cancelling|canceling)\b",
+        r"\b(not the right fit|doesn.t work for us|not a good fit)\b",
+        r"\b(competitor|alternative|other (vendor|option|solution))\b",
+        r"\b(lawsuit|lawyer|sue|legal action)\b",
+    ]
+    objection_hit = next((p for p in objection_patterns if re.search(p, text, re.IGNORECASE)), None)
+    dominant = max(emotions, key=lambda k: emotions[k])
+    should_escalate = bool(management_connections and (objection_hit or stress >= 2.0))
+
+    if should_escalate:
+        snippet = list(active_rep["transcript"])[-5:]
+        await broadcast_to_management({
+            "type": "escalation",
+            "reason": "objection detected" if objection_hit else "high stress",
+            "trigger_text": text,
+            "emotion": dominant,
+            "stress_pct": int(min(100, stress * 15)),
+            "transcript": snippet,
+            "lead_info": active_rep["lead_info"],
+            "ts": time.strftime("%H:%M:%S"),
+        })
+
+    return {"status": "ok", "stress": stress, "emotion": dominant, "escalated": should_escalate}
+
+
+@app.get("/test-escalation")
+async def test_escalation():
+    """Dev endpoint: fire a fake escalation to all open management dashboards."""
+    payload = {
+        "type": "escalation",
+        "reason": "objection detected",
+        "trigger_text": "This is a test escalation — I'm not interested anymore, it's too expensive.",
+        "emotion": "anger",
+        "stress_pct": 72,
+        "transcript": [
+            "Rep: Can I tell you about our pricing?",
+            "Customer: I've heard this before.",
+            "Rep: We have flexible plans.",
+            "Customer: Look, I'm not interested anymore, it's too expensive.",
+        ],
+        "lead_info": "Test lead — ACME Corp, VP of Sales",
+        "ts": time.strftime("%H:%M:%S"),
+    }
+    await broadcast_to_management(payload)
+    return {"status": "sent", "to": len(management_connections)}
 
 
 @app.websocket("/ws/management")
@@ -271,8 +339,8 @@ async def ws_endpoint(ws: WebSocket):
     last_escalation = 0.0
     COOLDOWN = 10.0
     THRESHOLD = 1.5
-    ESCALATION_THRESHOLD = 3.0
-    ESCALATION_COOLDOWN = 30.0
+    ESCALATION_THRESHOLD = 1.5
+    ESCALATION_COOLDOWN = 10.0
 
     OBJECTION_PATTERNS = [
         r"\b(not interested|no longer interested)\b",
