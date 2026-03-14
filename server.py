@@ -1,5 +1,5 @@
 """
-WhisperCoach Web Server
+VispyCoach Web Server
 =======================
 FastAPI + WebSocket backend. Browser streams audio → Pulse STT → Groq tip → Lightning TTS → browser earpiece.
 
@@ -146,7 +146,7 @@ EMOTION_TIPS = {
     ],
 }
 
-GROQ_SYSTEM = """You are WhisperCoach, a real-time AI coach for sales reps on live calls.
+GROQ_SYSTEM = """You are VispyCoach, a real-time AI coach for sales reps on live calls.
 Your tip is SPOKEN ALOUD into their earpiece. Rules:
 - ONE sentence, max 12 words.
 - Reference something the customer actually said.

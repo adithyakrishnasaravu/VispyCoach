@@ -1,5 +1,5 @@
 """
-WhisperCoach — Real-Time AI Call Coach
+VispyCoach — Real-Time AI Call Coach
 =======================================
 Entry point. Launches 4 background agents and the Gradio dashboard.
 
@@ -96,7 +96,7 @@ def on_start():
     if _running:
         return
     _running = True
-    print("[main] starting WhisperCoach...")
+    print("[main] starting VispyCoach...")
     mic.start(_loop)
     asyncio.run_coroutine_threadsafe(_run_all(), _loop)
     print("[main] all agents started")
@@ -120,7 +120,7 @@ def on_stop():
 def main():
     global _loop, _bg_thread
 
-    parser = argparse.ArgumentParser(description="WhisperCoach — Real-Time AI Call Coach")
+    parser = argparse.ArgumentParser(description="VispyCoach — Real-Time AI Call Coach")
     parser.add_argument("--list-devices", action="store_true", help="List audio devices and exit")
     parser.add_argument("--input-device", type=int, default=None, help="Audio input device index (e.g. BlackHole for call audio)")
     parser.add_argument("--output-device", type=int, default=None, help="Audio output device index for TTS (earpiece)")
@@ -144,7 +144,7 @@ def main():
 
     # Build and launch Gradio
     demo = build_ui(ui_state, on_start=on_start, on_stop=on_stop)
-    print("\n🎧 WhisperCoach is starting...")
+    print("\n🎧 VispyCoach is starting...")
     print("   Open http://localhost:7860 in your browser")
     print("   Press the ▶ Start button to begin listening\n")
     demo.launch(server_port=7860, share=False, show_error=True)
