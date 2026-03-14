@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WhisperCoach — Management</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: #000; color: #e2e8f0;
+    font-family: system-ui, -apple-system, sans-serif;
+    min-height: 100vh; padding: 24px 32px;
+  }
+
+  header {
+    display: flex; align-items: center; justify-content: space-between;
+    border-bottom: 1px solid #111; padding-bottom: 16px; margin-bottom: 24px;
+  }
+  header h1 { font-size: 1.2rem; font-weight: 700; color: #fff; }
+  header p  { font-size: 0.78rem; color: #4b5563; margin-top: 2px; }
+
+  #conn-dot {
+    width: 8px; height: 8px; border-radius: 50%;
+    background: #374151; display: inline-block; margin-right: 6px;
+    transition: background 0.3s;
+  }
+  #conn-dot.live { background: #22c55e; box-shadow: 0 0 6px #22c55e88; }
+  #conn-label { font-size: 0.78rem; color: #4b5563; }
+
+  /* ── Reply bar ── */
+  #reply-bar {
+    display: flex; gap: 10px; margin-bottom: 24px;
+  }
+  #reply-input {
+    flex: 1; background: #0d0d0d; border: 1px solid #1f2937;
+    border-radius: 10px; color: #e2e8f0; font-size: 0.9rem;
+    padding: 12px 16px; outline: none;
+    font-family: system-ui, sans-serif;
+  }
+  #reply-input:focus { border-color: #3b82f6; }
+  #reply-input::placeholder { color: #374151; }
+  #btn-send {
+    background: #2563eb; color: #fff; border: none;
+    border-radius: 10px; padding: 12px 22px;
+    font-size: 0.88rem; font-weight: 600; cursor: pointer;
+    transition: background 0.15s;
+  }
+  #btn-send:hover { background: #1d4ed8; }
+  #btn-send:disabled { background: #1e3a5f; cursor: default; }
+
+  /* ── Alert cards ── */
+  #alerts { display: flex; flex-direction: column; gap: 16px; }
+
+  .alert-card {
+    background: #0a0a0a; border: 1px solid #1e3a5f;
+    border-left: 4px solid #ef4444;
+    border-radius: 12px; padding: 18px 20px;
+    animation: fadein 0.3s ease;
+  }
+  .alert-card.objection { border-left-color: #f59e0b; }
+
+  @keyframes fadein { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: none; } }
+
+  .alert-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 10px;
+  }
+  .alert-badge {
+    font-size: 0.72rem; font-weight: 700; text-transform: uppercase;
+    letter-spacing: 0.05em; padding: 3px 10px; border-radius: 99px;
+    background: #7f1d1d; color: #fca5a5;
+  }
+  .alert-badge.objection { background: #78350f; color: #fcd34d; }
+  .alert-ts { font-size: 0.72rem; color: #374151; }
+
+  .alert-emotion {
+    font-size: 0.78rem; color: #6b7280; margin-bottom: 8px;
+  }
+  .alert-emotion strong { color: #e2e8f0; }
+
+  .alert-trigger {
+    font-size: 0.88rem; color: #cbd5e1; margin-bottom: 10px;
+    font-style: italic; line-height: 1.5;
+  }
+  .alert-trigger::before { content: '"'; color: #374151; }
+  .alert-trigger::after  { content: '"'; color: #374151; }
+
+  .alert-transcript {
+    list-style: none; border-top: 1px solid #111; padding-top: 10px;
+  }
+  .alert-transcript li {
+    font-size: 0.8rem; color: #4b5563; padding: 3px 0;
+    border-bottom: 1px solid #0d0d0d;
+  }
+  .alert-transcript li:last-child { color: #9ca3af; font-weight: 500; }
+
+  .alert-lead {
+    font-size: 0.75rem; color: #374151; margin-top: 8px;
+    border-top: 1px solid #111; padding-top: 8px;
+  }
+  .alert-lead strong { color: #4b5563; }
+
+  #empty-state {
+    text-align: center; color: #1f2937; font-size: 0.9rem;
+    margin-top: 80px;
+  }
+  #empty-state p { margin-top: 8px; font-size: 0.78rem; color: #111827; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>🎧 WhisperCoach — Management</h1>
+    <p>Live escalation alerts from active rep calls</p>
+  </div>
+  <div>
+    <span id="conn-dot"></span>
+    <span id="conn-label">Connecting...</span>
+  </div>
+</header>
+
+<div id="reply-bar">
+  <input id="reply-input" type="text"
+    placeholder="Send strategy to rep: e.g. 'Offer 20% discount and escalate to Sarah if needed'"
+    disabled />
+  <button id="btn-send" disabled>Send to Rep</button>
+</div>
+
+<div id="alerts">
+  <div id="empty-state">
+    No escalations yet
+    <p>Alerts appear here when the rep's call shows high stress or objection signals</p>
+  </div>
+</div>
+
+<script>
+const WS_URL = `ws://${location.host}/ws/management`;
+
+let ws = null;
+const connDot   = document.getElementById('conn-dot');
+const connLabel = document.getElementById('conn-label');
+const alertsEl  = document.getElementById('alerts');
+const emptyEl   = document.getElementById('empty-state');
+const replyInput = document.getElementById('reply-input');
+const btnSend   = document.getElementById('btn-send');
+
+function connect() {
+  ws = new WebSocket(WS_URL);
+
+  ws.onopen = () => {
+    connDot.classList.add('live');
+    connLabel.textContent = 'Connected — watching live call';
+    connLabel.style.color = '#22c55e';
+    replyInput.disabled = false;
+    btnSend.disabled = false;
+  };
+
+  ws.onclose = () => {
+    connDot.classList.remove('live');
+    connLabel.textContent = 'Disconnected — reconnecting...';
+    connLabel.style.color = '#4b5563';
+    replyInput.disabled = true;
+    btnSend.disabled = true;
+    setTimeout(connect, 2000);
+  };
+
+  ws.onmessage = (e) => {
+    const data = JSON.parse(e.data);
+    if (data.type === 'escalation') addAlert(data);
+  };
+}
+
+function addAlert(data) {
+  if (emptyEl) emptyEl.style.display = 'none';
+
+  const isObj = data.reason === 'objection detected';
+  const card = document.createElement('div');
+  card.className = `alert-card${isObj ? ' objection' : ''}`;
+
+  const transcriptHTML = (data.transcript || [])
+    .map(t => `<li>${escHtml(t)}</li>`).join('');
+
+  const leadHTML = data.lead_info
+    ? `<div class="alert-lead"><strong>Lead:</strong> ${escHtml(data.lead_info)}</div>`
+    : '';
+
+  card.innerHTML = `
+    <div class="alert-header">
+      <span class="alert-badge${isObj ? ' objection' : ''}">${isObj ? '⚠️ Objection' : '🔴 High Stress'}</span>
+      <span class="alert-ts">${data.ts}</span>
+    </div>
+    <div class="alert-emotion">Emotion: <strong>${data.emotion}</strong> &nbsp;·&nbsp; Stress: <strong>${data.stress_pct}%</strong></div>
+    <div class="alert-trigger">${escHtml(data.trigger_text)}</div>
+    <ul class="alert-transcript">${transcriptHTML}</ul>
+    ${leadHTML}
+  `;
+
+  alertsEl.insertBefore(card, alertsEl.firstChild);
+}
+
+function escHtml(s) {
+  return String(s)
+    .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+    .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+function sendMessage() {
+  const text = replyInput.value.trim();
+  if (!text || !ws || ws.readyState !== WebSocket.OPEN) return;
+  ws.send(JSON.stringify({ type: 'manager_message', text }));
+  replyInput.value = '';
+  // Show sent confirmation
+  const flash = document.createElement('div');
+  flash.style.cssText = 'color:#22c55e;font-size:0.78rem;margin-bottom:8px;animation:fadein 0.2s';
+  flash.textContent = `✓ Sent to rep: "${text}"`;
+  document.getElementById('reply-bar').after(flash);
+  setTimeout(() => flash.remove(), 3000);
+}
+
+btnSend.addEventListener('click', sendMessage);
+replyInput.addEventListener('keydown', e => { if (e.key === 'Enter') sendMessage(); });
+
+connect();
+</script>
+</body>
+</html>

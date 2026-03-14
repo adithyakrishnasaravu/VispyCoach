@@ -1,0 +1,13 @@
+smallestai>=4.3.0
+anthropic>=0.30.0
+websockets>=11.0
+pyaudio
+pydub
+gradio>=4.0
+python-dotenv
+requests
+numpy
+groq
+fastapi
+uvicorn
+httpx
