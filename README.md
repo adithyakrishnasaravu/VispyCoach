@@ -72,7 +72,7 @@ Open:
 3. Speak or play the customer's voice through your speakers
 4. Coaching tips fire automatically when stress is detected
 5. Hold **V** to ask the coach a question mid-call
-6. Management tab receives escalation alerts in real time
+6. The Management tab receives escalation alerts in real time
 7. Press **/** on the management dashboard to type a reply → **Enter** to send
 
 ---
@@ -85,5 +85,3 @@ GROQ_API_KEY=your_groq_key
 ```
 
 ---
-
-Built for Voice HackSprint 2.0
