@@ -420,6 +420,13 @@ async def analyze_emotion_groq(
     VALID_EMOTIONS = {"anger", "fear", "sadness", "disgust", "happiness"}
 
     def fallback(reason: str):
+        # If we have a previous emotion state, preserve it (don't reset to 0 on rate limits)
+        if prev_emotions and any(v > 0 for v in prev_emotions.values()):
+            dominant = max(prev_emotions, key=lambda k: prev_emotions[k])
+            stress_pct = int(min(100, (prev_emotions.get("anger", 0) + prev_emotions.get("disgust", 0) + prev_emotions.get("fear", 0)) * 100))
+            print(f"[emotion/groq] fallback ({reason}) → preserved state dominant={dominant} stress={stress_pct}%")
+            return dict(prev_emotions), stress_pct, dominant, f"preserved: {reason}"
+        # No prior state — use lexicon
         emotions, raw_stress = analyze_text(latest_text)
         stress_pct = int(min(100, raw_stress * 15))
         dominant = max(emotions, key=lambda k: emotions[k])
@@ -528,7 +535,7 @@ async def run_decision_agent(
                 "https://api.groq.com/openai/v1/chat/completions",
                 headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
                 json={
-                    "model": "llama-3.1-8b-instant",
+                    "model": "llama-3.3-70b-versatile",
                     "max_tokens": 250,
                     "temperature": 0.2,
                     "tools": DECISION_AGENT_TOOLS,
@@ -629,8 +636,10 @@ async def ws_endpoint(ws: WebSocket):
     smooth_emotions = {e: 0.0 for e in EMOTIONS}
     last_trigger = 0.0
     last_escalation = 0.0
+    last_groq_emotion = 0.0
     COOLDOWN = 10.0           # min seconds between coaching tip actions
     ESCALATION_COOLDOWN = 10.0  # min seconds between escalation broadcasts
+    EMOTION_COOLDOWN = 3.0    # min seconds between Groq emotion API calls
 
     async def receive_from_browser():
         """Receive audio chunks (binary) or control messages (text) from browser."""
@@ -714,7 +723,7 @@ async def ws_endpoint(ws: WebSocket):
                             break
 
                 async def recv_transcripts():
-                    nonlocal last_trigger, last_escalation, smooth_emotions
+                    nonlocal last_trigger, last_escalation, last_groq_emotion, smooth_emotions
                     msg_count = 0
                     async for message in stt_ws:
                         msg_count += 1
@@ -741,14 +750,25 @@ async def ws_endpoint(ws: WebSocket):
                             if not is_final:
                                 continue
 
-                            # ── Groq emotion agent (lexicon fallback on timeout) ──────────
+                            # ── Groq emotion agent (rate-limited, lexicon fallback) ───────
                             transcript_buffer.append(text)
-                            emotions, stress_pct, dominant, emotion_reasoning = await analyze_emotion_groq(
-                                text,
-                                list(transcript_buffer),
-                                active_rep["lead_info"],
-                                smooth_emotions,
-                            )
+                            now = time.time()
+                            if (now - last_groq_emotion) >= EMOTION_COOLDOWN:
+                                last_groq_emotion = now
+                                emotions, stress_pct, dominant, emotion_reasoning = await analyze_emotion_groq(
+                                    text,
+                                    list(transcript_buffer),
+                                    active_rep["lead_info"],
+                                    smooth_emotions,
+                                )
+                            else:
+                                # Too soon — use lexicon for quick update, preserve stress trajectory
+                                lex_emotions, raw_stress = analyze_text(text)
+                                dominant = max(smooth_emotions, key=lambda k: smooth_emotions[k])
+                                stress_pct = int(min(100, (smooth_emotions.get("anger", 0) + smooth_emotions.get("disgust", 0) + smooth_emotions.get("fear", 0)) * 100))
+                                emotions = lex_emotions
+                                emotion_reasoning = "throttled — using lexicon"
+                                print(f"[emotion] throttled (cooldown) → lexicon dominant={dominant} stress={stress_pct}%")
 
                             # Smooth with EMA so UI doesn't jump
                             for e in EMOTIONS:
@@ -761,7 +781,6 @@ async def ws_endpoint(ws: WebSocket):
                             }))
 
                             # ── Decision agent (tool-calling) ─────────────────────────
-                            now = time.time()
                             if (now - last_trigger) >= COOLDOWN:
                                 actions = await run_decision_agent(
                                     text,
