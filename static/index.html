@@ -706,7 +706,8 @@ function handleTip(msg) {
   const card = document.createElement('div');
   card.className = 'tip-card';
   const now = new Date().toLocaleTimeString('en-US', {hour12:false});
-  const urgency = msg.urgency || 'medium';
+  const VALID_URGENCY = ['low', 'medium', 'high'];
+  const urgency = VALID_URGENCY.includes(msg.urgency) ? msg.urgency : 'medium';
   card.innerHTML = `
     <div class="tip-card-header">
       <span class="tip-urgency ${urgency}">${urgency}</span>
