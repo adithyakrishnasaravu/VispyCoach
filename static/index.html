@@ -158,28 +158,96 @@
     animation: fadeUp 0.6s 0.2s ease both;
   }
   button {
-    border: none; border-radius: 10px; padding: 10px 20px;
+    border: 1px solid transparent;
+    border-radius: 99px;
+    padding: 10px 24px;
     font-size: 0.82rem; font-weight: 600; cursor: pointer;
-    font-family: inherit; letter-spacing: 0.1px;
-    transition: opacity 0.15s, transform 0.1s, box-shadow 0.2s;
+    font-family: inherit; letter-spacing: 0.25px;
+    transition: transform 0.12s cubic-bezier(0.34,1.5,0.64,1), box-shadow 0.25s, background 0.2s, border-color 0.2s;
+    position: relative; overflow: hidden;
+    -webkit-tap-highlight-color: transparent;
   }
-  button:hover { opacity: 0.85; }
-  button:active { transform: scale(0.97); }
-  button:disabled { opacity: 0.28; cursor: default; }
+  /* Shimmer shine sweep on hover */
+  button::before {
+    content: ''; position: absolute;
+    top: 0; left: -75%;
+    width: 50%; height: 100%;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
+    transform: skewX(-20deg);
+    transition: none;
+  }
+  button:hover::before {
+    animation: btn-shine 0.5s ease forwards;
+  }
+  @keyframes btn-shine {
+    from { left: -75%; }
+    to   { left: 125%; }
+  }
+  /* Ripple layer */
+  button .ripple {
+    position: absolute; border-radius: 50%;
+    transform: scale(0); opacity: 0.35;
+    animation: btn-ripple 0.55s ease-out forwards;
+    pointer-events: none;
+  }
+  @keyframes btn-ripple {
+    to { transform: scale(4); opacity: 0; }
+  }
+  button:active { transform: scale(0.94); }
+  button:disabled { opacity: 0.22; cursor: default; }
+  button:disabled::before { display: none; }
+
   #btn-capture {
-    background: linear-gradient(135deg, #1d4ed8, #2563eb);
-    color: #fff;
-    box-shadow: 0 2px 12px rgba(37,99,235,0.25);
+    background: rgba(37,99,235,0.18);
+    border-color: rgba(96,165,250,0.45);
+    color: #bfdbfe;
+    box-shadow: 0 0 20px rgba(37,99,235,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
   }
+  #btn-capture:hover:not(:disabled) {
+    background: rgba(37,99,235,0.28);
+    border-color: rgba(147,197,253,0.7);
+    box-shadow: 0 0 32px rgba(37,99,235,0.3), 0 4px 16px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+  }
+  #btn-capture .ripple { background: rgba(147,197,253,0.6); }
+
   #btn-mic {
-    background: linear-gradient(135deg, #065f46, #047857);
-    color: #fff;
-    box-shadow: 0 2px 12px rgba(4,120,87,0.25);
+    background: rgba(4,120,87,0.18);
+    border-color: rgba(52,211,153,0.4);
+    color: #a7f3d0;
+    box-shadow: 0 0 20px rgba(4,120,87,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
   }
+  #btn-mic:hover:not(:disabled) {
+    background: rgba(4,120,87,0.28);
+    border-color: rgba(110,231,183,0.65);
+    box-shadow: 0 0 32px rgba(16,185,129,0.28), 0 4px 16px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+  }
+  #btn-mic.recording {
+    border-color: rgba(239,68,68,0.6);
+    background: rgba(239,68,68,0.12);
+    color: #fca5a5;
+    animation: btn-recording-pulse 1.8s ease-in-out infinite;
+  }
+  @keyframes btn-recording-pulse {
+    0%,100% { box-shadow: 0 0 12px rgba(239,68,68,0.2); }
+    50%      { box-shadow: 0 0 28px rgba(239,68,68,0.45); }
+  }
+  #btn-mic .ripple { background: rgba(110,231,183,0.6); }
+
   #btn-stop {
-    background: linear-gradient(135deg, #7f1d1d, #991b1b);
-    color: #fff;
+    background: rgba(127,29,29,0.15);
+    border-color: rgba(239,68,68,0.22);
+    color: rgba(252,165,165,0.55);
   }
+  #btn-stop:hover:not(:disabled) {
+    background: rgba(185,28,28,0.25);
+    border-color: rgba(239,68,68,0.5);
+    color: #fca5a5;
+    box-shadow: 0 0 28px rgba(239,68,68,0.2), 0 4px 16px rgba(0,0,0,0.3);
+    transform: translateY(-1px);
+  }
+  #btn-stop .ripple { background: rgba(252,165,165,0.6); }
 
   /* ── Main grid ── */
   .main-grid {
@@ -692,6 +760,7 @@ function startStreamingAudio() {
   isRunning = true;
   btnCapture.disabled = true;
   btnMic.disabled = true;
+  btnMic.classList.add('recording');
   btnStop.disabled = false;
 }
 
@@ -710,6 +779,7 @@ function stopAll() {
   setStatus('Stopped', false);
   btnCapture.disabled = false;
   btnMic.disabled = false;
+  btnMic.classList.remove('recording');
   btnStop.disabled = true;
 }
 
@@ -858,8 +928,24 @@ function resetTTSQueue() { nextPlayTime = 0; }
 
 // ── Buttons ──────────────────────────────────────────────────────────────────
 
+// ── Button ripple effect ─────────────────────────────────────────────────────
+function addRipple(btn, e) {
+  const rect = btn.getBoundingClientRect();
+  const size = Math.max(rect.width, rect.height);
+  const x = (e.clientX - rect.left) - size / 2;
+  const y = (e.clientY - rect.top)  - size / 2;
+  const ripple = document.createElement('span');
+  ripple.className = 'ripple';
+  ripple.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
+  btn.appendChild(ripple);
+  ripple.addEventListener('animationend', () => ripple.remove());
+}
+[btnCapture, btnMic, btnStop].forEach(btn => {
+  btn.addEventListener('click', (e) => addRipple(btn, e));
+});
+
 btnCapture.onclick = () => startCapture(true);
-btnMic.onclick     = () => startCapture(false);
+btnMic.onclick     = () => { startCapture(false); };
 btnStop.onclick    = () => stopAll();
 
 // ── V-key: Ask Coach ─────────────────────────────────────────────────────────
