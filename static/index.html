@@ -10,573 +10,397 @@
 <style>
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
-  :root {
-    --bg: #000;
-    --surface: rgba(255,255,255,0.03);
-    --surface-hover: rgba(255,255,255,0.05);
-    --border: rgba(255,255,255,0.07);
-    --border-bright: rgba(255,255,255,0.12);
-    --text: #f0f0f0;
-    --muted: rgba(255,255,255,0.35);
-    --accent: #7c3aed;
-    --accent-glow: rgba(124,58,237,0.4);
-    --green: #22c55e;
-    --yellow: #f59e0b;
-    --red: #ef4444;
-    --blue: #3b82f6;
-    --stress-hue: 142; /* 142=green, 45=yellow, 0=red */
-  }
-
-  html { scroll-behavior: smooth; }
-
   body {
     background: #000;
-    color: var(--text);
-    font-family: 'Space Grotesk', -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #f0f0f0;
+    font-family: 'Space Grotesk', -apple-system, sans-serif;
     min-height: 100vh;
-    padding: 0;
-    overflow-x: hidden;
-    /* Ambient reactive gradient behind everything */
-    transition: background 1.5s ease;
+    overflow: hidden;
   }
 
-  /* ── Ambient background orb — reacts to stress ── */
-  #ambient-bg {
-    position: fixed; inset: 0; z-index: 0; pointer-events: none;
-    background: radial-gradient(
-      ellipse 80% 60% at 50% -10%,
-      hsla(var(--stress-hue), 60%, 18%, 0.15) 0%,
-      transparent 70%
-    );
-    transition: --stress-hue 1.5s ease;
+  /* ── Full-screen orb canvas ── */
+  #orb-canvas {
+    position: fixed; inset: 0; z-index: 0;
+    width: 100%; height: 100%;
   }
 
-  .page-wrap {
-    position: relative; z-index: 1;
-    max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px;
+  /* ── Layout shell ── */
+  #ui {
+    position: fixed; inset: 0; z-index: 1;
+    display: grid;
+    grid-template-columns: 280px 1fr 300px;
+    grid-template-rows: auto 1fr auto;
+    pointer-events: none;
   }
+  #ui > * { pointer-events: auto; }
 
-  /* ── Header ── */
-  header {
-    text-align: center;
-    margin-bottom: 32px;
-    animation: fadeUp 0.6s ease both;
+  /* ── Header strip ── */
+  #header {
+    grid-column: 1 / -1;
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 20px 28px 0;
+    animation: fadeDown 0.6s ease both;
   }
-  header h1 {
-    font-size: 1.75rem; font-weight: 700;
-    letter-spacing: -0.5px;
-    background: linear-gradient(135deg, #fff 30%, rgba(167,139,250,0.9) 100%);
+  .brand {
+    font-size: 1rem; font-weight: 700; letter-spacing: -0.3px;
+    background: linear-gradient(135deg, #fff 30%, rgba(167,139,250,0.8) 100%);
     -webkit-background-clip: text; -webkit-text-fill-color: transparent;
     background-clip: text;
   }
-  header p { color: var(--muted); font-size: 0.82rem; margin-top: 5px; letter-spacing: 0.3px; }
-
-  /* ── Waveform canvas ── */
-  #waveform-wrap {
-    width: 100%; margin-bottom: 20px;
-    border-radius: 16px; overflow: hidden;
-    border: 1px solid var(--border);
-    background: rgba(255,255,255,0.015);
-    backdrop-filter: blur(20px);
-    animation: fadeUp 0.6s 0.1s ease both;
-    position: relative;
+  #status-pill {
+    display: flex; align-items: center; gap: 8px;
+    background: rgba(255,255,255,0.04);
+    border: 1px solid rgba(255,255,255,0.07);
+    border-radius: 99px; padding: 6px 14px;
+    font-size: 0.73rem; color: rgba(255,255,255,0.4);
+    transition: border-color 0.3s, color 0.3s;
   }
-  #waveform-canvas {
-    display: block; width: 100%; height: 72px;
-  }
-  #waveform-status {
-    position: absolute; left: 16px; top: 50%; transform: translateY(-50%);
-    display: flex; align-items: center; gap: 10px;
-  }
+  #status-pill.active { border-color: rgba(239,68,68,0.4); color: rgba(252,165,165,0.8); }
   #listen-dot {
-    width: 9px; height: 9px; border-radius: 50%;
+    width: 7px; height: 7px; border-radius: 50%;
     background: #2a2a2a; flex-shrink: 0;
-    position: relative;
-  }
-  #listen-dot::before, #listen-dot::after {
-    content: ''; position: absolute; inset: -5px;
-    border-radius: 50%; border: 1px solid transparent;
-    opacity: 0;
+    transition: background 0.3s, box-shadow 0.3s;
   }
   #listen-dot.active {
-    background: var(--red);
-    box-shadow: 0 0 8px var(--red);
+    background: #ef4444;
+    box-shadow: 0 0 8px rgba(239,68,68,0.7);
     animation: dot-pulse 1.4s ease-in-out infinite;
   }
-  #listen-dot.active::before {
-    border-color: rgba(239,68,68,0.5);
-    animation: ring-expand 1.4s ease-out infinite;
-  }
-  #listen-dot.active::after {
-    border-color: rgba(239,68,68,0.25);
-    animation: ring-expand 1.4s 0.4s ease-out infinite;
-  }
-  @keyframes dot-pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:0.7;transform:scale(1.15)} }
-  @keyframes ring-expand {
-    0% { transform: scale(1); opacity: 0.8; }
-    100% { transform: scale(3.5); opacity: 0; }
-  }
-  #status-label { font-size: 0.78rem; color: var(--muted); letter-spacing: 0.2px; }
-  #waveform-hotkey {
-    position: absolute; right: 16px; top: 50%; transform: translateY(-50%);
-    font-size: 0.73rem; color: #2a2a2a;
-  }
+  @keyframes dot-pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+  #hotkey-hint { font-size: 0.7rem; color: rgba(255,255,255,0.15); }
   kbd {
-    background: rgba(255,255,255,0.06); border: 1px solid var(--border);
-    border-radius: 5px; padding: 2px 7px; font-size: 0.72rem;
-    color: rgba(255,255,255,0.3); font-family: inherit;
+    background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+    border-radius: 4px; padding: 1px 6px; font-size: 0.68rem;
+    color: rgba(255,255,255,0.25); font-family: inherit;
   }
 
-  /* ── Lead info ── */
+  /* ── Left column: transcript feed ── */
+  #transcript-col {
+    grid-column: 1; grid-row: 2;
+    display: flex; flex-direction: column;
+    padding: 24px 0 24px 24px;
+    overflow: hidden;
+  }
+  .col-label {
+    font-size: 0.6rem; font-weight: 600; letter-spacing: 2px;
+    color: rgba(255,255,255,0.2); text-transform: uppercase;
+    margin-bottom: 12px; padding-left: 4px;
+  }
+  #transcript-feed {
+    flex: 1; overflow-y: auto; overflow-x: hidden;
+    display: flex; flex-direction: column-reverse;
+    gap: 0;
+    scrollbar-width: none;
+  }
+  #transcript-feed::-webkit-scrollbar { display: none; }
+  .t-line {
+    font-size: 0.82rem; color: rgba(255,255,255,0.5);
+    line-height: 1.65; padding: 4px 8px;
+    border-radius: 6px;
+    transition: color 0.5s;
+    animation: lineIn 0.3s ease both;
+  }
+  .t-line.final { color: rgba(255,255,255,0.75); }
+  .t-line.partial { color: rgba(255,255,255,0.3); font-style: italic; }
+  .t-line.latest { color: rgba(255,255,255,0.9); }
+  @keyframes lineIn { from{opacity:0;transform:translateY(6px)} to{opacity:1;transform:none} }
+
+  /* ── Center: orb zone (lead info + buttons float over orb) ── */
+  #center-col {
+    grid-column: 2; grid-row: 2;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: flex-end;
+    padding: 0 0 32px;
+  }
+
+  /* Lead info floats subtly at bottom center */
   #lead-section {
-    margin-bottom: 16px;
-    animation: fadeUp 0.6s 0.15s ease both;
-  }
-  .section-label {
-    font-size: 0.65rem; font-weight: 600; letter-spacing: 1.8px;
-    color: var(--muted); text-transform: uppercase; margin-bottom: 8px;
-    display: flex; align-items: center; gap: 6px;
-  }
-  #lead-info {
-    width: 100%; height: 64px;
-    background: rgba(255,255,255,0.025);
-    border: 1px solid var(--border);
-    border-radius: 12px; color: rgba(255,255,255,0.6);
-    font-size: 0.82rem; padding: 10px 14px;
-    font-family: inherit; resize: none; outline: none;
-    transition: border-color 0.2s, background 0.2s;
-  }
-  #lead-info:focus {
-    border-color: var(--border-bright);
-    background: rgba(255,255,255,0.04);
-  }
-  #lead-info::placeholder { color: rgba(255,255,255,0.18); }
-
-  /* ── Buttons ── */
-  .btn-row {
-    display: flex; gap: 10px; margin-bottom: 20px;
+    width: 100%; max-width: 400px; margin-bottom: 16px;
     animation: fadeUp 0.6s 0.2s ease both;
   }
+  #lead-info {
+    width: 100%;
+    background: rgba(255,255,255,0.03);
+    border: 1px solid rgba(255,255,255,0.06);
+    border-radius: 12px; color: rgba(255,255,255,0.5);
+    font-size: 0.78rem; padding: 10px 14px;
+    font-family: inherit; resize: none; outline: none;
+    height: 52px; transition: border-color 0.2s, background 0.2s;
+    backdrop-filter: blur(12px);
+  }
+  #lead-info:focus { border-color: rgba(255,255,255,0.12); background: rgba(255,255,255,0.05); }
+  #lead-info::placeholder { color: rgba(255,255,255,0.15); }
+
+  .btn-row {
+    display: flex; gap: 8px; justify-content: center;
+    animation: fadeUp 0.6s 0.3s ease both;
+  }
   button {
-    border: 1px solid transparent;
-    border-radius: 99px;
-    padding: 10px 24px;
-    font-size: 0.82rem; font-weight: 600; cursor: pointer;
-    font-family: inherit; letter-spacing: 0.25px;
-    transition: transform 0.12s cubic-bezier(0.34,1.5,0.64,1), box-shadow 0.25s, background 0.2s, border-color 0.2s;
+    border: 1px solid transparent; border-radius: 99px;
+    padding: 9px 22px; font-size: 0.78rem; font-weight: 600;
+    cursor: pointer; font-family: inherit; letter-spacing: 0.2px;
     position: relative; overflow: hidden;
+    backdrop-filter: blur(12px);
+    transition: transform 0.12s cubic-bezier(0.34,1.5,0.64,1), box-shadow 0.2s, background 0.2s, border-color 0.2s;
     -webkit-tap-highlight-color: transparent;
   }
-  /* Shimmer shine sweep on hover */
   button::before {
-    content: ''; position: absolute;
-    top: 0; left: -75%;
+    content: ''; position: absolute; top: 0; left: -75%;
     width: 50%; height: 100%;
     background: linear-gradient(90deg, transparent, rgba(255,255,255,0.12), transparent);
     transform: skewX(-20deg);
-    transition: none;
   }
-  button:hover::before {
-    animation: btn-shine 0.5s ease forwards;
-  }
-  @keyframes btn-shine {
-    from { left: -75%; }
-    to   { left: 125%; }
-  }
-  /* Ripple layer */
+  button:hover::before { animation: btn-shine 0.5s ease forwards; }
+  @keyframes btn-shine { from{left:-75%} to{left:125%} }
   button .ripple {
     position: absolute; border-radius: 50%;
     transform: scale(0); opacity: 0.35;
-    animation: btn-ripple 0.55s ease-out forwards;
-    pointer-events: none;
+    animation: btn-ripple 0.55s ease-out forwards; pointer-events: none;
   }
-  @keyframes btn-ripple {
-    to { transform: scale(4); opacity: 0; }
-  }
-  button:active { transform: scale(0.94); }
-  button:disabled { opacity: 0.22; cursor: default; }
+  @keyframes btn-ripple { to{transform:scale(4);opacity:0} }
+  button:active { transform: scale(0.95); }
+  button:disabled { opacity: 0.2; cursor: default; }
   button:disabled::before { display: none; }
 
   #btn-capture {
-    background: rgba(37,99,235,0.18);
-    border-color: rgba(96,165,250,0.45);
-    color: #bfdbfe;
-    box-shadow: 0 0 20px rgba(37,99,235,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
+    background: rgba(37,99,235,0.18); border-color: rgba(96,165,250,0.4); color: #bfdbfe;
+    box-shadow: 0 0 16px rgba(37,99,235,0.12);
   }
-  #btn-capture:hover:not(:disabled) {
-    background: rgba(37,99,235,0.28);
-    border-color: rgba(147,197,253,0.7);
-    box-shadow: 0 0 32px rgba(37,99,235,0.3), 0 4px 16px rgba(0,0,0,0.3);
-    transform: translateY(-1px);
-  }
+  #btn-capture:hover:not(:disabled) { background: rgba(37,99,235,0.28); border-color: rgba(147,197,253,0.65); box-shadow: 0 0 28px rgba(37,99,235,0.28); transform: translateY(-1px); }
   #btn-capture .ripple { background: rgba(147,197,253,0.6); }
 
   #btn-mic {
-    background: rgba(4,120,87,0.18);
-    border-color: rgba(52,211,153,0.4);
-    color: #a7f3d0;
-    box-shadow: 0 0 20px rgba(4,120,87,0.15), inset 0 1px 0 rgba(255,255,255,0.08);
+    background: rgba(4,120,87,0.18); border-color: rgba(52,211,153,0.35); color: #a7f3d0;
+    box-shadow: 0 0 16px rgba(4,120,87,0.12);
   }
-  #btn-mic:hover:not(:disabled) {
-    background: rgba(4,120,87,0.28);
-    border-color: rgba(110,231,183,0.65);
-    box-shadow: 0 0 32px rgba(16,185,129,0.28), 0 4px 16px rgba(0,0,0,0.3);
-    transform: translateY(-1px);
-  }
-  #btn-mic.recording {
-    border-color: rgba(239,68,68,0.6);
-    background: rgba(239,68,68,0.12);
-    color: #fca5a5;
-    animation: btn-recording-pulse 1.8s ease-in-out infinite;
-  }
-  @keyframes btn-recording-pulse {
-    0%,100% { box-shadow: 0 0 12px rgba(239,68,68,0.2); }
-    50%      { box-shadow: 0 0 28px rgba(239,68,68,0.45); }
-  }
+  #btn-mic:hover:not(:disabled) { background: rgba(4,120,87,0.28); border-color: rgba(110,231,183,0.6); box-shadow: 0 0 28px rgba(16,185,129,0.25); transform: translateY(-1px); }
+  #btn-mic.recording { border-color: rgba(239,68,68,0.55); background: rgba(239,68,68,0.12); color: #fca5a5; animation: btn-rec-pulse 1.8s ease-in-out infinite; }
+  @keyframes btn-rec-pulse { 0%,100%{box-shadow:0 0 10px rgba(239,68,68,0.15)} 50%{box-shadow:0 0 24px rgba(239,68,68,0.4)} }
   #btn-mic .ripple { background: rgba(110,231,183,0.6); }
 
-  #btn-stop {
-    background: rgba(127,29,29,0.15);
-    border-color: rgba(239,68,68,0.22);
-    color: rgba(252,165,165,0.55);
-  }
-  #btn-stop:hover:not(:disabled) {
-    background: rgba(185,28,28,0.25);
-    border-color: rgba(239,68,68,0.5);
-    color: #fca5a5;
-    box-shadow: 0 0 28px rgba(239,68,68,0.2), 0 4px 16px rgba(0,0,0,0.3);
-    transform: translateY(-1px);
-  }
+  #btn-stop { background: rgba(127,29,29,0.12); border-color: rgba(239,68,68,0.2); color: rgba(252,165,165,0.5); }
+  #btn-stop:hover:not(:disabled) { background: rgba(185,28,28,0.22); border-color: rgba(239,68,68,0.45); color: #fca5a5; box-shadow: 0 0 24px rgba(239,68,68,0.18); transform: translateY(-1px); }
   #btn-stop .ripple { background: rgba(252,165,165,0.6); }
 
-  /* ── Main grid ── */
-  .main-grid {
-    display: grid;
-    grid-template-columns: 1fr 300px;
-    gap: 14px;
-    margin-bottom: 14px;
-    animation: fadeUp 0.6s 0.25s ease both;
-  }
-  @media (max-width: 800px) { .main-grid { grid-template-columns: 1fr; } }
-
-  /* ── Glass panel ── */
-  .panel {
-    background: rgba(255,255,255,0.025);
-    border: 1px solid var(--border);
-    border-radius: 16px;
-    padding: 18px;
-    backdrop-filter: blur(20px);
-    -webkit-backdrop-filter: blur(20px);
+  /* ── Right column: stress + coaching tips ── */
+  #right-col {
+    grid-column: 3; grid-row: 2;
+    display: flex; flex-direction: column;
+    padding: 24px 24px 24px 0;
+    gap: 20px; overflow: hidden;
   }
 
-  /* ── Transcript ── */
-  #transcript {
-    width: 100%; min-height: 240px; max-height: 240px;
-    background: transparent; border: none; outline: none;
-    color: rgba(255,255,255,0.75); font-size: 0.83rem;
-    font-family: 'Menlo', 'Monaco', 'SF Mono', monospace;
-    line-height: 1.75; resize: none; overflow-y: auto;
-  }
-  #transcript::placeholder { color: rgba(255,255,255,0.12); }
-  #transcript::-webkit-scrollbar { width: 4px; }
-  #transcript::-webkit-scrollbar-track { background: transparent; }
-  #transcript::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.1); border-radius: 2px; }
-
-  /* ── Stress panel ── */
+  /* Stress display — no box, just floating numbers */
+  #stress-display { text-align: right; }
   #stress-num {
-    font-size: 3rem; font-weight: 700; line-height: 1;
-    margin-bottom: 10px; letter-spacing: -2px;
-    transition: color 0.8s ease, text-shadow 0.8s ease;
-    color: #fff;
-  }
-  #stress-num.elevated { color: #f59e0b; text-shadow: 0 0 20px rgba(245,158,11,0.4); }
-  #stress-num.high { color: #ef4444; text-shadow: 0 0 28px rgba(239,68,68,0.5); }
-
-  #stress-track {
-    background: rgba(255,255,255,0.06);
-    border-radius: 99px; height: 5px; overflow: hidden;
-    margin-bottom: 8px;
-  }
-  #stress-fill {
-    height: 100%; width: 0%; border-radius: 99px;
-    background: linear-gradient(90deg, var(--green) 0%, var(--yellow) 55%, var(--red) 100%);
-    background-size: 300% 100%;
-    transition: width 0.8s cubic-bezier(0.34,1.3,0.64,1), background-position 0.8s ease;
-    box-shadow: 0 0 8px rgba(239,68,68,0.3);
-  }
-  #stress-label {
-    font-size: 0.7rem; font-weight: 600; letter-spacing: 1.5px;
-    color: var(--muted); text-transform: uppercase;
-    transition: color 0.5s;
-  }
-
-  /* ── Emotion bars ── */
-  .emo-section { margin-top: 18px; }
-  .emo-row {
-    display: flex; align-items: center; gap: 8px;
-    margin-bottom: 10px;
-  }
-  .emo-name {
-    width: 52px; font-size: 0.7rem; color: var(--muted);
-    letter-spacing: 0.3px;
-  }
-  .emo-track {
-    flex: 1; background: rgba(255,255,255,0.05);
-    border-radius: 99px; height: 6px; overflow: hidden;
-  }
-  .emo-fill {
-    height: 100%; border-radius: 99px; width: 0%;
-    transition: width 0.9s cubic-bezier(0.34,1.2,0.64,1);
-  }
-  .emo-pct {
-    width: 30px; text-align: right;
-    font-size: 0.68rem; color: var(--muted);
-    transition: color 0.5s;
+    font-size: 3.5rem; font-weight: 700; letter-spacing: -3px;
+    line-height: 1; color: rgba(255,255,255,0.9);
+    transition: color 0.8s, text-shadow 0.8s;
     font-variant-numeric: tabular-nums;
   }
-
-  /* ── Coaching tip ── */
-  #tip-section {
-    margin-bottom: 14px;
-    animation: fadeUp 0.6s 0.3s ease both;
+  #stress-num.elevated { color: #f59e0b; text-shadow: 0 0 30px rgba(245,158,11,0.4); }
+  #stress-num.high { color: #ef4444; text-shadow: 0 0 40px rgba(239,68,68,0.55); }
+  #stress-label {
+    font-size: 0.62rem; font-weight: 600; letter-spacing: 2.5px;
+    color: rgba(255,255,255,0.25); text-transform: uppercase;
+    margin-top: 2px; transition: color 0.5s;
   }
-  #tip-panel {
-    background: rgba(124,58,237,0.06);
+  #stress-track {
+    margin-top: 8px; height: 2px; border-radius: 99px;
+    background: rgba(255,255,255,0.05); overflow: hidden;
+  }
+  #stress-fill {
+    height: 100%; border-radius: 99px; width: 0%;
+    background: linear-gradient(90deg, #22c55e, #f59e0b, #ef4444);
+    background-size: 300% 100%;
+    transition: width 0.9s cubic-bezier(0.34,1.2,0.64,1), background-position 0.9s ease;
+  }
+
+  /* Emotion dots — no bars, just floating labels */
+  #emotion-dots {
+    display: flex; flex-direction: column; gap: 7px;
+    margin-top: 12px;
+  }
+  .emo-row {
+    display: flex; align-items: center; justify-content: flex-end; gap: 10px;
+  }
+  .emo-name { font-size: 0.68rem; color: rgba(255,255,255,0.2); letter-spacing: 0.3px; }
+  .emo-dot {
+    width: 6px; height: 6px; border-radius: 50%;
+    transition: transform 0.6s cubic-bezier(0.34,1.5,0.64,1), opacity 0.6s, box-shadow 0.6s;
+    opacity: 0.2; transform: scale(1);
+  }
+  .emo-dot.active { opacity: 1; transform: scale(1.6); }
+  #dot-anger   { background: #ef4444; }
+  #dot-fear    { background: #f97316; }
+  #dot-disgust { background: #a855f7; }
+  #dot-sadness { background: #3b82f6; }
+  #dot-happiness { background: #22c55e; }
+
+  /* Coaching tip cards — floating, stacking */
+  #tips-feed {
+    flex: 1; display: flex; flex-direction: column;
+    gap: 8px; overflow: hidden; justify-content: flex-end;
+  }
+  .tip-card {
+    background: rgba(124,58,237,0.08);
     border: 1px solid rgba(124,58,237,0.2);
-    border-left: 3px solid var(--accent);
-    border-radius: 16px;
-    padding: 18px;
-    min-height: 80px;
-    position: relative;
-    overflow: hidden;
-    transition: border-color 0.3s, box-shadow 0.5s;
+    border-left: 2px solid rgba(167,139,250,0.6);
+    border-radius: 12px; padding: 12px 14px;
+    backdrop-filter: blur(16px);
+    animation: tipIn 0.4s cubic-bezier(0.34,1.3,0.64,1) both;
+    transition: opacity 0.5s, transform 0.5s;
   }
-  #tip-panel::before {
-    content: ''; position: absolute; inset: 0;
-    background: radial-gradient(ellipse at 0% 50%, rgba(124,58,237,0.12) 0%, transparent 60%);
-    pointer-events: none;
-    opacity: 0; transition: opacity 0.5s;
+  .tip-card.stale { opacity: 0.35; transform: scale(0.98); }
+  @keyframes tipIn { from{opacity:0;transform:translateX(16px)} to{opacity:1;transform:none} }
+  .tip-card-header {
+    display: flex; align-items: center; justify-content: space-between;
+    margin-bottom: 6px;
   }
-  #tip-panel.flash::before { opacity: 1; }
-  #tip-panel.flash {
-    border-color: rgba(167,139,250,0.6);
-    box-shadow: 0 0 32px rgba(124,58,237,0.2), inset 0 0 20px rgba(124,58,237,0.05);
-    animation: tip-glow 0.8s ease;
-  }
-  @keyframes tip-glow {
-    0% { box-shadow: 0 0 50px rgba(124,58,237,0.5); }
-    100% { box-shadow: 0 0 32px rgba(124,58,237,0.2); }
-  }
-  #tip-list { list-style: none; }
-  #tip-list li {
-    color: rgba(196,181,253,0.9); font-size: 0.88rem; line-height: 1.6;
-    padding: 8px 0; border-bottom: 1px solid rgba(124,58,237,0.12);
-    animation: tipSlideIn 0.4s cubic-bezier(0.34,1.3,0.64,1) both;
-  }
-  #tip-list li:last-child { border-bottom: none; }
-  @keyframes tipSlideIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-  .tip-time { color: rgba(124,58,237,0.5); font-size: 0.7rem; margin-right: 8px; font-variant-numeric: tabular-nums; }
   .tip-urgency {
-    display: inline-block; font-size: 0.6rem; font-weight: 700;
-    letter-spacing: 1px; text-transform: uppercase;
-    padding: 1px 6px; border-radius: 99px; margin-right: 6px;
-    vertical-align: middle;
+    font-size: 0.58rem; font-weight: 700; letter-spacing: 1.2px;
+    text-transform: uppercase; padding: 2px 8px; border-radius: 99px;
   }
-  .tip-urgency.high { background: rgba(239,68,68,0.2); color: #fca5a5; }
-  .tip-urgency.medium { background: rgba(245,158,11,0.2); color: #fcd34d; }
-  .tip-urgency.low { background: rgba(34,197,94,0.2); color: #86efac; }
-  #tip-placeholder { color: rgba(124,58,237,0.3); font-size: 0.83rem; }
+  .tip-urgency.high { background: rgba(239,68,68,0.18); color: #fca5a5; }
+  .tip-urgency.medium { background: rgba(245,158,11,0.18); color: #fcd34d; }
+  .tip-urgency.low { background: rgba(34,197,94,0.18); color: #86efac; }
+  .tip-time { font-size: 0.65rem; color: rgba(255,255,255,0.18); font-variant-numeric: tabular-nums; }
+  .tip-text { font-size: 0.84rem; color: rgba(196,181,253,0.9); line-height: 1.55; }
 
-  /* ── Ask Coach ── */
-  #ask-section {
-    animation: fadeUp 0.6s 0.35s ease both;
+  /* Ask Coach answers */
+  #answers-feed {
+    display: flex; flex-direction: column; gap: 8px; overflow: hidden;
+    max-height: 200px; justify-content: flex-end;
   }
-  #answer-panel {
-    background: rgba(59,130,246,0.05);
+  .answer-card {
+    background: rgba(59,130,246,0.06);
     border: 1px solid rgba(59,130,246,0.15);
-    border-left: 3px solid var(--blue);
-    border-radius: 16px; padding: 16px;
-    margin-top: 8px;
-    display: none;
+    border-left: 2px solid rgba(96,165,250,0.5);
+    border-radius: 12px; padding: 12px 14px;
+    backdrop-filter: blur(16px);
+    animation: tipIn 0.4s cubic-bezier(0.34,1.3,0.64,1) both;
   }
-  #answer-panel.visible { display: block; }
-  #answer-list { list-style: none; }
-  #answer-list li {
-    padding: 10px 0; border-bottom: 1px solid rgba(59,130,246,0.1);
-    animation: tipSlideIn 0.4s cubic-bezier(0.34,1.3,0.64,1) both;
-  }
-  #answer-list li:last-child { border-bottom: none; }
-  .q { color: rgba(96,165,250,0.7); font-size: 0.72rem; margin-bottom: 4px; letter-spacing: 0.2px; }
-  .a { color: rgba(255,255,255,0.85); font-size: 0.88rem; line-height: 1.6; }
-  #answer-placeholder { color: rgba(59,130,246,0.25); font-size: 0.8rem; margin-top: 6px; }
+  .answer-q { font-size: 0.68rem; color: rgba(96,165,250,0.6); margin-bottom: 4px; }
+  .answer-a { font-size: 0.82rem; color: rgba(255,255,255,0.8); line-height: 1.55; }
 
-  /* ── Ask Coach overlay ── */
+  /* Bottom row */
+  #bottom-row {
+    grid-column: 1 / -1; grid-row: 3;
+    padding: 0 24px 20px;
+    display: flex; align-items: center; justify-content: center;
+    gap: 8px;
+    animation: fadeUp 0.6s 0.4s ease both;
+  }
+  #footer-text {
+    font-size: 0.65rem; color: rgba(255,255,255,0.1); letter-spacing: 0.3px;
+  }
+
+  /* Ask Coach overlay */
   #ask-overlay {
-    display: none; position: fixed; inset: 0;
-    background: rgba(0,0,0,0.7);
-    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
-    align-items: center; justify-content: center; z-index: 100;
+    display: none; position: fixed; inset: 0; z-index: 200;
+    background: rgba(0,0,0,0.65);
+    backdrop-filter: blur(16px);
+    align-items: center; justify-content: center;
   }
   #ask-overlay.visible { display: flex; animation: overlayIn 0.2s ease; }
   @keyframes overlayIn { from{opacity:0} to{opacity:1} }
   #ask-box {
-    background: rgba(13,13,13,0.95);
-    border: 1px solid rgba(124,58,237,0.5);
-    border-radius: 20px; padding: 32px 44px; text-align: center;
-    box-shadow: 0 0 60px rgba(124,58,237,0.3), 0 32px 64px rgba(0,0,0,0.5);
-    animation: askBoxIn 0.3s cubic-bezier(0.34,1.3,0.64,1);
+    text-align: center;
+    background: rgba(10,10,10,0.95);
+    border: 1px solid rgba(124,58,237,0.4);
+    border-radius: 24px; padding: 36px 52px;
+    box-shadow: 0 0 80px rgba(124,58,237,0.25), 0 40px 80px rgba(0,0,0,0.5);
+    animation: askIn 0.3s cubic-bezier(0.34,1.3,0.64,1);
   }
-  @keyframes askBoxIn { from{opacity:0;transform:scale(0.9)} to{opacity:1;transform:scale(1)} }
-  #ask-box h2 { font-size: 1.1rem; color: #c4b5fd; margin-bottom: 8px; font-weight: 600; }
-  #ask-box p  { font-size: 0.8rem; color: var(--muted); }
-  /* Mic animation rings */
-  .mic-rings {
-    position: relative; width: 56px; height: 56px;
-    margin: 0 auto 16px;
-  }
+  @keyframes askIn { from{opacity:0;transform:scale(0.88)} to{opacity:1;transform:scale(1)} }
+  .mic-rings { position: relative; width: 60px; height: 60px; margin: 0 auto 18px; }
   .mic-rings span {
     position: absolute; inset: 0; border-radius: 50%;
-    border: 2px solid rgba(167,139,250,0.4);
-    animation: mic-ring 1.2s ease-out infinite;
+    border: 1.5px solid rgba(167,139,250,0.35);
+    animation: mic-ring 1.4s ease-out infinite;
   }
-  .mic-rings span:nth-child(2) { animation-delay: 0.3s; }
-  .mic-rings span:nth-child(3) { animation-delay: 0.6s; }
-  .mic-rings .mic-icon {
-    position: absolute; inset: 0;
-    display: flex; align-items: center; justify-content: center;
-    font-size: 1.4rem;
-    animation: none; border: none;
-  }
-  @keyframes mic-ring {
-    0% { transform: scale(1); opacity: 0.7; }
-    100% { transform: scale(2.2); opacity: 0; }
-  }
+  .mic-rings span:nth-child(2) { animation-delay: 0.35s; }
+  .mic-rings span:nth-child(3) { animation-delay: 0.7s; }
+  .mic-icon { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; font-size: 1.6rem; }
+  @keyframes mic-ring { 0%{transform:scale(1);opacity:0.7} 100%{transform:scale(2.4);opacity:0} }
+  #ask-box h2 { font-size: 1rem; color: #c4b5fd; margin-bottom: 6px; font-weight: 600; }
+  #ask-box p  { font-size: 0.78rem; color: rgba(255,255,255,0.3); }
 
-  /* ── Manager banner ── */
+  /* Manager banner */
   #mgr-banner {
-    position: fixed; top: 0; left: 0; right: 0; z-index: 200;
-    background: rgba(13,40,80,0.95);
-    border-bottom: 1px solid rgba(59,130,246,0.4);
-    backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
-    padding: 14px 24px;
+    position: fixed; top: 0; left: 0; right: 0; z-index: 300;
+    background: rgba(10,30,60,0.95);
+    border-bottom: 1px solid rgba(59,130,246,0.35);
+    backdrop-filter: blur(24px);
+    padding: 14px 28px;
     display: flex; align-items: center; justify-content: space-between;
-    font-size: 0.9rem; color: #e2e8f0;
-    box-shadow: 0 4px 32px rgba(0,0,0,0.4);
-    animation: bannerSlideIn 0.35s cubic-bezier(0.34,1.2,0.64,1);
+    font-size: 0.88rem; color: #e2e8f0;
+    box-shadow: 0 4px 40px rgba(0,0,0,0.5);
+    animation: bannerIn 0.35s cubic-bezier(0.34,1.2,0.64,1);
   }
-  @keyframes bannerSlideIn { from{transform:translateY(-100%);opacity:0} to{transform:none;opacity:1} }
+  @keyframes bannerIn { from{transform:translateY(-100%);opacity:0} to{transform:none;opacity:1} }
 
-  /* ── Footer ── */
-  #footer {
-    text-align: center; color: rgba(255,255,255,0.1);
-    font-size: 0.72rem; margin-top: 24px; letter-spacing: 0.3px;
-  }
-
-  /* ── Global animations ── */
-  @keyframes fadeUp {
-    from { opacity: 0; transform: translateY(14px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
+  @keyframes fadeUp   { from{opacity:0;transform:translateY(12px)} to{opacity:1;transform:none} }
+  @keyframes fadeDown { from{opacity:0;transform:translateY(-10px)} to{opacity:1;transform:none} }
 </style>
 </head>
 <body>
 
-<div id="ambient-bg"></div>
+<!-- Full-screen generative orb -->
+<canvas id="orb-canvas"></canvas>
 
-<div class="page-wrap">
-
-  <header>
-    <h1>🎧 VispyCoach</h1>
-    <p>Real-time AI coaching for sales &amp; support reps</p>
-  </header>
-
-  <!-- Live audio waveform -->
-  <div id="waveform-wrap">
-    <canvas id="waveform-canvas"></canvas>
-    <div id="waveform-status">
+<div id="ui">
+  <!-- Header -->
+  <div id="header">
+    <span class="brand">VispyCoach</span>
+    <div id="status-pill">
       <div id="listen-dot"></div>
-      <span id="status-label">Idle — capture your call audio to begin</span>
+      <span id="status-label">Idle</span>
     </div>
-    <div id="waveform-hotkey">Hold <kbd>V</kbd> to ask coach</div>
+    <span id="hotkey-hint">Hold <kbd>V</kbd> to ask coach</span>
   </div>
 
-  <!-- Lead info -->
-  <div id="lead-section">
-    <div class="section-label">👤 Lead / Customer Info <span style="font-weight:400;text-transform:none;letter-spacing:0;color:rgba(255,255,255,0.15)">(optional)</span></div>
-    <textarea id="lead-info" placeholder="e.g. Sarah Chen, Acme Corp, $50k renewal, objection: pricing, prior demo Feb 20..."></textarea>
+  <!-- Left: transcript feed -->
+  <div id="transcript-col">
+    <div class="col-label">Live Transcript</div>
+    <div id="transcript-feed"></div>
   </div>
 
-  <!-- Buttons -->
-  <div class="btn-row">
-    <button id="btn-capture">🖥 Capture Meet / Zoom Tab</button>
-    <button id="btn-mic">🎙 Use Microphone</button>
-    <button id="btn-stop" disabled>■ Stop</button>
-  </div>
-
-  <!-- Main grid: transcript + stress -->
-  <div class="main-grid">
-    <div class="panel">
-      <div class="section-label">📝 Live Transcript</div>
-      <textarea id="transcript" readonly placeholder="Transcript will appear here..."></textarea>
+  <!-- Center: orb + controls -->
+  <div id="center-col">
+    <div id="lead-section">
+      <textarea id="lead-info" placeholder="Lead context — name, company, deal size, known objections..."></textarea>
     </div>
+    <div class="btn-row">
+      <button id="btn-capture">Capture Tab</button>
+      <button id="btn-mic">Use Mic</button>
+      <button id="btn-stop" disabled>Stop</button>
+    </div>
+  </div>
 
-    <div class="panel">
-      <div class="section-label">😤 Customer Stress</div>
+  <!-- Right: stress + tips -->
+  <div id="right-col">
+    <div id="stress-display">
       <div id="stress-num">0%</div>
+      <div id="stress-label">Calm</div>
       <div id="stress-track"><div id="stress-fill"></div></div>
-      <div id="stress-label">CALM</div>
-
-      <div class="emo-section">
-        <div class="section-label" style="margin-top:4px">🧠 Emotions</div>
-        <div class="emo-row">
-          <span class="emo-name">anger</span>
-          <div class="emo-track"><div class="emo-fill" id="ef-anger" style="background:linear-gradient(90deg,#b91c1c,#ef4444)"></div></div>
-          <span class="emo-pct" id="ep-anger">0%</span>
-        </div>
-        <div class="emo-row">
-          <span class="emo-name">fear</span>
-          <div class="emo-track"><div class="emo-fill" id="ef-fear" style="background:linear-gradient(90deg,#c2410c,#f97316)"></div></div>
-          <span class="emo-pct" id="ep-fear">0%</span>
-        </div>
-        <div class="emo-row">
-          <span class="emo-name">disgust</span>
-          <div class="emo-track"><div class="emo-fill" id="ef-disgust" style="background:linear-gradient(90deg,#7e22ce,#a855f7)"></div></div>
-          <span class="emo-pct" id="ep-disgust">0%</span>
-        </div>
-        <div class="emo-row">
-          <span class="emo-name">sadness</span>
-          <div class="emo-track"><div class="emo-fill" id="ef-sadness" style="background:linear-gradient(90deg,#1d4ed8,#3b82f6)"></div></div>
-          <span class="emo-pct" id="ep-sadness">0%</span>
-        </div>
-        <div class="emo-row">
-          <span class="emo-name">happy</span>
-          <div class="emo-track"><div class="emo-fill" id="ef-happiness" style="background:linear-gradient(90deg,#15803d,#22c55e)"></div></div>
-          <span class="emo-pct" id="ep-happiness">100%</span>
-        </div>
+      <div id="emotion-dots">
+        <div class="emo-row"><span class="emo-name">anger</span><div class="emo-dot" id="dot-anger"></div></div>
+        <div class="emo-row"><span class="emo-name">fear</span><div class="emo-dot" id="dot-fear"></div></div>
+        <div class="emo-row"><span class="emo-name">disgust</span><div class="emo-dot" id="dot-disgust"></div></div>
+        <div class="emo-row"><span class="emo-name">sadness</span><div class="emo-dot" id="dot-sadness"></div></div>
+        <div class="emo-row"><span class="emo-name">happy</span><div class="emo-dot active" id="dot-happiness"></div></div>
       </div>
     </div>
+
+    <div id="tips-feed"></div>
+    <div id="answers-feed"></div>
   </div>
 
-  <!-- Coaching tips -->
-  <div id="tip-section">
-    <div class="section-label">💡 Coaching Tips</div>
-    <div id="tip-panel">
-      <p id="tip-placeholder">Tips will appear here when stress or objections are detected...</p>
-      <ul id="tip-list" style="display:none"></ul>
-    </div>
+  <!-- Bottom -->
+  <div id="bottom-row">
+    <span id="footer-text">Smallest AI · Pulse STT · Lightning TTS · Groq Llama 3.1</span>
   </div>
-
-  <!-- Ask Coach -->
-  <div id="ask-section">
-    <div class="section-label">🧠 Ask Coach <span style="font-weight:400;text-transform:none;letter-spacing:0;color:rgba(255,255,255,0.2)">— hold <kbd>V</kbd> to ask a question</span></div>
-    <div id="answer-panel"><ul id="answer-list"></ul></div>
-    <div id="answer-placeholder">Hold V and ask: "How should I handle the pricing objection?"</div>
-  </div>
-
-  <div id="footer">VispyCoach · Smallest AI (Pulse STT + Lightning TTS) · Groq (Llama 3.1 8B)</div>
 </div>
 
 <!-- Ask Coach overlay -->
@@ -587,150 +411,186 @@
       <span class="mic-icon">🎤</span>
     </div>
     <h2>Listening...</h2>
-    <p>Ask your question. Release <kbd>V</kbd> when done.</p>
+    <p>Ask your question — release <kbd>V</kbd> when done</p>
   </div>
 </div>
 
 <script>
 const WS_URL = `ws://${location.host}/ws`;
 
-let ws = null;
-let audioCtx = null;
-let processor = null;
-let mediaStream = null;
-let isRunning = false;
+let ws = null, audioCtx = null, processor = null, mediaStream = null, isRunning = false;
 
-const dot          = document.getElementById('listen-dot');
-const statusLbl    = document.getElementById('status-label');
-const transcriptEl = document.getElementById('transcript');
-const stressNum    = document.getElementById('stress-num');
-const stressFill   = document.getElementById('stress-fill');
-const stressLbl    = document.getElementById('stress-label');
-const tipPanel     = document.getElementById('tip-panel');
-const tipList      = document.getElementById('tip-list');
-const tipPlaceholder = document.getElementById('tip-placeholder');
-const ambientBg    = document.getElementById('ambient-bg');
-const btnCapture   = document.getElementById('btn-capture');
-const btnMic       = document.getElementById('btn-mic');
-const btnStop      = document.getElementById('btn-stop');
+const dot       = document.getElementById('listen-dot');
+const statusPill = document.getElementById('status-pill');
+const statusLbl = document.getElementById('status-label');
+const stressNum = document.getElementById('stress-num');
+const stressFill = document.getElementById('stress-fill');
+const stressLbl = document.getElementById('stress-label');
+const btnCapture = document.getElementById('btn-capture');
+const btnMic    = document.getElementById('btn-mic');
+const btnStop   = document.getElementById('btn-stop');
 
-// ── Waveform visualizer ──────────────────────────────────────────────────────
+// ── Orb canvas ────────────────────────────────────────────────────────────────
 
-const canvas = document.getElementById('waveform-canvas');
-const wCtx   = canvas.getContext('2d');
+const canvas = document.getElementById('orb-canvas');
+const ctx    = canvas.getContext('2d');
 
-const WAVE_SIZE = 1024;
-const waveBuffer = new Float32Array(WAVE_SIZE);
+// State driven by live data
+let orbState = {
+  amplitude: 0,      // 0-1, real audio level
+  stress: 0,         // 0-100
+  emotionHue: 265,   // 265=purple/calm, 30=orange/fear, 0=red/anger
+  dominant: 'happiness',
+};
+
+// Target values for smooth interpolation
+let orbTarget = { amplitude: 0, stress: 0, emotionHue: 265 };
+
+const WAVE_SIZE = 512;
+const waveBuf = new Float32Array(WAVE_SIZE);
 let wavePos = 0;
-let currentStressPct = 0;
 
 function resizeCanvas() {
-  canvas.width  = canvas.offsetWidth  * window.devicePixelRatio;
-  canvas.height = canvas.offsetHeight * window.devicePixelRatio;
-  wCtx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  canvas.width  = window.innerWidth  * devicePixelRatio;
+  canvas.height = window.innerHeight * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
 }
 resizeCanvas();
 window.addEventListener('resize', resizeCanvas);
 
-function drawWaveform() {
-  requestAnimationFrame(drawWaveform);
-  const W = canvas.offsetWidth;
-  const H = canvas.offsetHeight;
-
-  wCtx.clearRect(0, 0, W, H);
-
-  // Draw center line always
-  wCtx.beginPath();
-  wCtx.strokeStyle = 'rgba(255,255,255,0.04)';
-  wCtx.lineWidth = 1;
-  wCtx.moveTo(0, H / 2);
-  wCtx.lineTo(W, H / 2);
-  wCtx.stroke();
-
-  if (!isRunning) {
-    // Idle: subtle breathing flat line
-    const t = Date.now() / 2000;
-    wCtx.beginPath();
-    wCtx.strokeStyle = 'rgba(124,58,237,0.15)';
-    wCtx.lineWidth = 1.5;
-    for (let x = 0; x < W; x++) {
-      const y = H / 2 + Math.sin((x / W) * Math.PI * 4 + t) * 2;
-      x === 0 ? wCtx.moveTo(x, y) : wCtx.lineTo(x, y);
-    }
-    wCtx.stroke();
-    return;
-  }
-
-  // Color based on stress
-  const stress = currentStressPct / 100;
-  const r = Math.round(124 + (239 - 124) * stress);
-  const g = Math.round(58  + (68  - 58)  * stress);
-  const b = Math.round(237 + (68  - 237) * stress);
-
-  const grad = wCtx.createLinearGradient(0, 0, W, 0);
-  grad.addColorStop(0,   `rgba(${r},${g},${b},0)`);
-  grad.addColorStop(0.15,`rgba(${r},${g},${b},0.7)`);
-  grad.addColorStop(0.5, `rgba(${r},${g},${b},1)`);
-  grad.addColorStop(0.85,`rgba(${r},${g},${b},0.7)`);
-  grad.addColorStop(1,   `rgba(${r},${g},${b},0)`);
-
-  wCtx.beginPath();
-  wCtx.strokeStyle = grad;
-  wCtx.lineWidth = 1.5;
-  wCtx.shadowBlur = 10;
-  wCtx.shadowColor = `rgba(${r},${g},${b},0.5)`;
-
-  for (let x = 0; x < W; x++) {
-    const idx = (wavePos + Math.floor(x * WAVE_SIZE / W)) % WAVE_SIZE;
-    const sample = waveBuffer[idx] || 0;
-    const y = H / 2 + sample * (H / 2) * 0.75;
-    x === 0 ? wCtx.moveTo(x, y) : wCtx.lineTo(x, y);
-  }
-  wCtx.stroke();
-  wCtx.shadowBlur = 0;
-
-  // Mirror (ghost below)
-  wCtx.beginPath();
-  wCtx.strokeStyle = `rgba(${r},${g},${b},0.12)`;
-  wCtx.lineWidth = 1;
-  for (let x = 0; x < W; x++) {
-    const idx = (wavePos + Math.floor(x * WAVE_SIZE / W)) % WAVE_SIZE;
-    const sample = waveBuffer[idx] || 0;
-    const y = H / 2 - sample * (H / 2) * 0.4;
-    x === 0 ? wCtx.moveTo(x, y) : wCtx.lineTo(x, y);
-  }
-  wCtx.stroke();
+// Simplex-like wobble using layered sines
+function wobble(t, freq, phase) {
+  return Math.sin(t * freq + phase) * 0.5 + Math.sin(t * freq * 1.7 + phase * 2.3) * 0.3;
 }
-drawWaveform();
 
-// ── Audio capture & streaming ────────────────────────────────────────────────
+let lastTime = 0;
+function drawOrb(ts) {
+  requestAnimationFrame(drawOrb);
+  const t = ts / 1000;
+  const dt = Math.min(t - lastTime, 0.05);
+  lastTime = t;
+
+  // Smooth interpolation toward targets
+  const lerpSpeed = 2.5;
+  orbState.amplitude = orbState.amplitude + (orbTarget.amplitude - orbState.amplitude) * Math.min(dt * lerpSpeed * 4, 1);
+  orbState.stress    = orbState.stress    + (orbTarget.stress    - orbState.stress)    * Math.min(dt * lerpSpeed, 1);
+  orbState.emotionHue= orbState.emotionHue+ (orbTarget.emotionHue- orbState.emotionHue)* Math.min(dt * lerpSpeed * 0.5, 1);
+
+  const W = window.innerWidth, H = window.innerHeight;
+  const cx = W / 2, cy = H / 2;
+
+  ctx.clearRect(0, 0, W, H);
+
+  const hue = orbState.emotionHue;
+  const stress01 = orbState.stress / 100;
+  const amp = orbState.amplitude;
+
+  // Base orb radius — grows with stress
+  const baseR = Math.min(W, H) * (0.18 + stress01 * 0.08);
+  const breathR = baseR * (1 + amp * 0.25 + wobble(t, 0.4, 0) * 0.04);
+
+  // ── Outer atmosphere (multiple soft glow rings) ──
+  for (let i = 4; i >= 0; i--) {
+    const r = breathR * (2.5 - i * 0.3) + stress01 * 40;
+    const alpha = (0.025 + stress01 * 0.02) * (i === 0 ? 1 : 0.6);
+    const g = ctx.createRadialGradient(cx, cy, breathR * 0.3, cx, cy, r);
+    g.addColorStop(0, `hsla(${hue},80%,60%,${alpha * 2})`);
+    g.addColorStop(0.5, `hsla(${hue},70%,50%,${alpha})`);
+    g.addColorStop(1, `hsla(${hue},60%,40%,0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ── Organic blob — 8 overlapping displaced circles ──
+  for (let i = 0; i < 8; i++) {
+    const angle = (i / 8) * Math.PI * 2 + t * 0.3;
+    const w = wobble(t, 0.8 + i * 0.15, i * 1.3);
+    const r = breathR * (0.85 + w * 0.12 + amp * 0.1);
+    const ox = Math.cos(angle) * breathR * (0.12 + amp * 0.08);
+    const oy = Math.sin(angle) * breathR * (0.12 + amp * 0.08);
+    const alpha = 0.055 + stress01 * 0.025;
+    const g = ctx.createRadialGradient(cx+ox, cy+oy, 0, cx+ox, cy+oy, r);
+    g.addColorStop(0, `hsla(${hue+i*8},75%,65%,${alpha * 1.5})`);
+    g.addColorStop(0.6, `hsla(${hue},70%,55%,${alpha})`);
+    g.addColorStop(1, `hsla(${hue},60%,40%,0)`);
+    ctx.fillStyle = g;
+    ctx.beginPath(); ctx.arc(cx+ox, cy+oy, r, 0, Math.PI * 2); ctx.fill();
+  }
+
+  // ── Core sphere ──
+  const coreG = ctx.createRadialGradient(
+    cx - breathR*0.25, cy - breathR*0.25, 0,
+    cx, cy, breathR
+  );
+  const sat = 60 + stress01 * 20;
+  const lit = 55 + amp * 15;
+  coreG.addColorStop(0,   `hsla(${hue+20},${sat}%,${lit+20}%,0.7)`);
+  coreG.addColorStop(0.4, `hsla(${hue},${sat}%,${lit}%,0.5)`);
+  coreG.addColorStop(0.8, `hsla(${hue-20},${sat-10}%,${lit-20}%,0.3)`);
+  coreG.addColorStop(1,   `hsla(${hue},60%,30%,0)`);
+  ctx.fillStyle = coreG;
+  ctx.beginPath(); ctx.arc(cx, cy, breathR, 0, Math.PI * 2); ctx.fill();
+
+  // ── Specular highlight ──
+  const specG = ctx.createRadialGradient(
+    cx - breathR*0.3, cy - breathR*0.35, 0,
+    cx - breathR*0.3, cy - breathR*0.35, breathR * 0.55
+  );
+  specG.addColorStop(0, `rgba(255,255,255,${0.12 + amp * 0.08})`);
+  specG.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = specG;
+  ctx.beginPath(); ctx.arc(cx, cy, breathR, 0, Math.PI * 2); ctx.fill();
+
+  // ── Audio waveform ring around orb ──
+  if (isRunning) {
+    ctx.beginPath();
+    ctx.strokeStyle = `hsla(${hue},70%,70%,0.35)`;
+    ctx.lineWidth = 1.5;
+    ctx.shadowBlur = 6;
+    ctx.shadowColor = `hsla(${hue},70%,60%,0.5)`;
+    const points = 128;
+    for (let i = 0; i <= points; i++) {
+      const angle = (i / points) * Math.PI * 2 - Math.PI / 2;
+      const idx = Math.floor((wavePos + i * (WAVE_SIZE / points)) % WAVE_SIZE);
+      const sample = waveBuf[idx] || 0;
+      const r = breathR * 1.18 + sample * breathR * 0.35;
+      const x = cx + Math.cos(angle) * r;
+      const y = cy + Math.sin(angle) * r;
+      i === 0 ? ctx.moveTo(x, y) : ctx.lineTo(x, y);
+    }
+    ctx.closePath(); ctx.stroke();
+    ctx.shadowBlur = 0;
+  }
+
+  // Update amplitude target from live audio
+  if (isRunning) {
+    let sum = 0;
+    const n = Math.min(64, WAVE_SIZE);
+    for (let i = 0; i < n; i++) sum += Math.abs(waveBuf[(wavePos - i + WAVE_SIZE) % WAVE_SIZE]);
+    orbTarget.amplitude = Math.min(1, (sum / n) * 8);
+  } else {
+    orbTarget.amplitude = 0.02 + Math.abs(wobble(t, 0.3, 0)) * 0.03; // gentle idle breath
+  }
+}
+requestAnimationFrame(drawOrb);
+
+// ── Audio ─────────────────────────────────────────────────────────────────────
 
 async function startCapture(useDisplay) {
   if (isRunning) return;
   try {
     if (useDisplay) {
-      mediaStream = await navigator.mediaDevices.getDisplayMedia({
-        video: { width: 1, height: 1, frameRate: 1 },
-        audio: true,
-      });
-      const audioTracks = mediaStream.getAudioTracks();
-      if (audioTracks.length === 0) {
-        alert('No audio track captured!\n\nYou must check "Share tab audio" in the Chrome picker.\n\nTry again and check that box.');
-        mediaStream.getTracks().forEach(t => t.stop());
-        mediaStream = null;
-        return;
+      mediaStream = await navigator.mediaDevices.getDisplayMedia({ video:{width:1,height:1,frameRate:1}, audio:true });
+      if (mediaStream.getAudioTracks().length === 0) {
+        alert('No audio captured — check "Share tab audio" in Chrome picker.');
+        mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; return;
       }
-      setStatus('● Capturing tab audio...', true);
+      setStatus('Capturing tab...', true);
     } else {
-      mediaStream = await navigator.mediaDevices.getUserMedia({
-        audio: { echoCancellation: true, noiseSuppression: true, sampleRate: 16000, channelCount: 1 }
-      });
-      setStatus('● Listening via mic...', true);
+      mediaStream = await navigator.mediaDevices.getUserMedia({ audio:{echoCancellation:true,noiseSuppression:true,sampleRate:16000,channelCount:1} });
+      setStatus('Listening via mic...', true);
     }
-  } catch (err) {
-    alert('Audio capture failed: ' + err.message);
-    return;
-  }
+  } catch(err) { alert('Audio capture failed: ' + err.message); return; }
   connectWS(() => startStreamingAudio());
 }
 
@@ -738,164 +598,144 @@ function startStreamingAudio() {
   audioCtx = new AudioContext({ sampleRate: 16000 });
   const source = audioCtx.createMediaStreamSource(mediaStream);
   processor = audioCtx.createScriptProcessor(512, 1, 1);
-  source.connect(processor);
-  processor.connect(audioCtx.destination);
-
+  source.connect(processor); processor.connect(audioCtx.destination);
   processor.onaudioprocess = (evt) => {
-    const float32 = evt.inputBuffer.getChannelData(0);
-    // Feed waveform buffer
-    for (let i = 0; i < float32.length; i++) {
-      waveBuffer[wavePos % WAVE_SIZE] = float32[i];
-      wavePos++;
-    }
-    // Send to server
+    const f32 = evt.inputBuffer.getChannelData(0);
+    for (let i = 0; i < f32.length; i++) { waveBuf[wavePos % WAVE_SIZE] = f32[i]; wavePos++; }
     if (!ws || ws.readyState !== WebSocket.OPEN) return;
-    const int16 = new Int16Array(float32.length);
-    for (let i = 0; i < float32.length; i++) {
-      int16[i] = Math.max(-32768, Math.min(32767, float32[i] * 32768));
-    }
-    ws.send(int16.buffer);
+    const i16 = new Int16Array(f32.length);
+    for (let i = 0; i < f32.length; i++) i16[i] = Math.max(-32768, Math.min(32767, f32[i] * 32768));
+    ws.send(i16.buffer);
   };
-
   isRunning = true;
-  btnCapture.disabled = true;
-  btnMic.disabled = true;
-  btnMic.classList.add('recording');
-  btnStop.disabled = false;
+  btnCapture.disabled = true; btnMic.disabled = true;
+  btnMic.classList.add('recording'); btnStop.disabled = false;
 }
 
 function stopAll() {
   isRunning = false;
-  // Fade waveform buffer to silence
-  for (let i = 0; i < WAVE_SIZE; i++) waveBuffer[i] = 0;
-  if (processor)   { processor.disconnect(); processor = null; }
-  if (audioCtx)    { audioCtx.close(); audioCtx = null; }
+  waveBuf.fill(0);
+  if (processor) { processor.disconnect(); processor = null; }
+  if (audioCtx)  { audioCtx.close(); audioCtx = null; }
   if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'stop' }));
-    ws.close();
-  }
+  if (ws && ws.readyState === WebSocket.OPEN) { ws.send(JSON.stringify({type:'stop'})); ws.close(); }
   ws = null;
-  setStatus('Stopped', false);
-  btnCapture.disabled = false;
-  btnMic.disabled = false;
-  btnMic.classList.remove('recording');
-  btnStop.disabled = true;
+  setStatus('Idle', false);
+  btnCapture.disabled = false; btnMic.disabled = false;
+  btnMic.classList.remove('recording'); btnStop.disabled = true;
+  orbTarget.stress = 0; orbTarget.emotionHue = 265;
 }
 
-// ── WebSocket ────────────────────────────────────────────────────────────────
+// ── WebSocket ─────────────────────────────────────────────────────────────────
 
 function connectWS(onOpen) {
   ws = new WebSocket(WS_URL);
   ws.binaryType = 'arraybuffer';
-  ws.onopen  = () => { onOpen(); };
-  ws.onclose = () => {};
-  ws.onerror = (e) => console.error('[ws] error', e);
+  ws.onopen = () => onOpen();
+  ws.onerror = (e) => console.error('[ws]', e);
   ws.onmessage = (evt) => {
-    if (evt.data instanceof ArrayBuffer) {
-      playPCM(evt.data);
-    } else {
-      const msg = JSON.parse(evt.data);
-      if      (msg.type === 'transcript')      handleTranscript(msg);
-      else if (msg.type === 'emotion')         handleEmotion(msg);
-      else if (msg.type === 'tip')             handleTip(msg);
-      else if (msg.type === 'tts_done')        resetTTSQueue();
-      else if (msg.type === 'answer')          handleAnswer(msg);
-      else if (msg.type === 'manager_message') handleManagerMessage(msg);
-    }
+    if (evt.data instanceof ArrayBuffer) { playPCM(evt.data); return; }
+    const msg = JSON.parse(evt.data);
+    if      (msg.type === 'transcript')      handleTranscript(msg);
+    else if (msg.type === 'emotion')         handleEmotion(msg);
+    else if (msg.type === 'tip')             handleTip(msg);
+    else if (msg.type === 'tts_done')        resetTTSQueue();
+    else if (msg.type === 'answer')          handleAnswer(msg);
+    else if (msg.type === 'manager_message') handleManagerMessage(msg);
   };
 }
 
-// ── UI handlers ──────────────────────────────────────────────────────────────
+// ── UI handlers ───────────────────────────────────────────────────────────────
 
-let partialLine = '';
+const feed = document.getElementById('transcript-feed');
+let partialEl = null;
 
 function handleTranscript(msg) {
   if (msg.is_final) {
-    if (partialLine) {
-      const lines = transcriptEl.value.split('\n').filter(l => l !== partialLine);
-      transcriptEl.value = lines.join('\n');
-    }
-    partialLine = '';
-    transcriptEl.value += (transcriptEl.value ? '\n' : '') + msg.text.trim();
+    if (partialEl) { partialEl.remove(); partialEl = null; }
+    const el = document.createElement('div');
+    el.className = 't-line final latest';
+    el.textContent = msg.text.trim();
+    feed.prepend(el);
+    // Dim previous latest
+    feed.querySelectorAll('.t-line.latest').forEach((l, i) => { if (i > 0) l.classList.remove('latest'); });
+    // Keep last 30 lines
+    while (feed.children.length > 30) feed.removeChild(feed.lastChild);
   } else {
-    const lines = transcriptEl.value.split('\n').filter(l => l !== partialLine);
-    partialLine = msg.text.trim();
-    transcriptEl.value = [...lines, partialLine].join('\n');
+    if (!partialEl) { partialEl = document.createElement('div'); partialEl.className = 't-line partial'; feed.prepend(partialEl); }
+    partialEl.textContent = msg.text.trim();
   }
-  transcriptEl.scrollTop = transcriptEl.scrollHeight;
 }
+
+const EMOTION_HUES = { happiness: 265, sadness: 220, fear: 30, disgust: 290, anger: 0 };
 
 function handleEmotion(msg) {
   const s = msg.stress;
-  currentStressPct = s;
+  orbTarget.stress = s;
 
-  // Animate stress number
   stressNum.textContent = s + '%';
   stressNum.className = s > 65 ? 'high' : s > 35 ? 'elevated' : '';
-
-  // Stress bar
-  stressFill.style.width = s + '%';
-  stressFill.style.backgroundPosition = (s) + '% 0';
-
-  // Status label
   stressLbl.textContent = s > 65 ? 'HIGH STRESS' : s > 35 ? 'ELEVATED' : 'CALM';
-  stressLbl.style.color = s > 65 ? 'rgba(239,68,68,0.7)' : s > 35 ? 'rgba(245,158,11,0.7)' : 'rgba(34,197,94,0.6)';
+  stressFill.style.width = s + '%';
+  stressFill.style.backgroundPosition = s + '% 0';
 
-  // Ambient background hue: 142=green, 45=yellow, 0=red
-  const hue = s > 65 ? 0 : s > 35 ? Math.round(45 + (65 - s) * 2.4) : 142;
-  ambientBg.style.setProperty('--stress-hue', hue);
-  ambientBg.style.background = `radial-gradient(ellipse 80% 60% at 50% -10%, hsla(${hue}, 60%, 18%, ${0.08 + s * 0.002}) 0%, transparent 70%)`;
-
-  // Emotion bars
   const emotions = msg.emotions;
+  let dominant = 'happiness', maxVal = 0;
   for (const [name, score] of Object.entries(emotions)) {
-    const fill = document.getElementById('ef-' + name);
-    const pct  = document.getElementById('ep-' + name);
-    if (fill) fill.style.width = (score * 100) + '%';
-    if (pct)  pct.textContent = Math.round(score * 100) + '%';
+    const dot = document.getElementById('dot-' + name);
+    if (dot) {
+      dot.classList.toggle('active', score > 0.15);
+      const intensity = Math.round(score * 100);
+      if (dot.classList.contains('active')) {
+        dot.style.boxShadow = `0 0 ${8 + intensity/5}px currentColor`;
+      } else {
+        dot.style.boxShadow = '';
+      }
+    }
+    if (score > maxVal) { maxVal = score; dominant = name; }
   }
+  orbTarget.emotionHue = EMOTION_HUES[dominant] ?? 265;
 }
 
 function handleTip(msg) {
-  tipPlaceholder.style.display = 'none';
-  tipList.style.display = 'block';
+  const tipsFeed = document.getElementById('tips-feed');
 
-  const li = document.createElement('li');
-  const now = new Date().toLocaleTimeString('en-US', { hour12: false });
+  // Mark existing cards stale
+  tipsFeed.querySelectorAll('.tip-card').forEach(c => c.classList.add('stale'));
+
+  const card = document.createElement('div');
+  card.className = 'tip-card';
+  const now = new Date().toLocaleTimeString('en-US', {hour12:false});
   const urgency = msg.urgency || 'medium';
-  li.innerHTML = `<span class="tip-time">${now}</span><span class="tip-urgency ${urgency}">${urgency}</span>${escHtml(msg.text)}`;
-  tipList.insertBefore(li, tipList.firstChild);
-  while (tipList.children.length > 5) tipList.removeChild(tipList.lastChild);
-
-  tipPanel.classList.remove('flash');
-  void tipPanel.offsetWidth;
-  tipPanel.classList.add('flash');
+  card.innerHTML = `
+    <div class="tip-card-header">
+      <span class="tip-urgency ${urgency}">${urgency}</span>
+      <span class="tip-time">${now}</span>
+    </div>
+    <div class="tip-text">${escHtml(msg.text)}</div>
+  `;
+  tipsFeed.appendChild(card);
+  while (tipsFeed.children.length > 3) tipsFeed.removeChild(tipsFeed.firstChild);
 }
 
 function handleAnswer(msg) {
-  const panel = document.getElementById('answer-panel');
-  const list  = document.getElementById('answer-list');
-  document.getElementById('answer-placeholder').style.display = 'none';
-  panel.classList.add('visible');
-  const li = document.createElement('li');
-  li.innerHTML = `<div class="q">You asked: ${escHtml(msg.question)}</div><div class="a">${escHtml(msg.text)}</div>`;
-  list.insertBefore(li, list.firstChild);
-  while (list.children.length > 6) list.removeChild(list.lastChild);
+  const af = document.getElementById('answers-feed');
+  const card = document.createElement('div');
+  card.className = 'answer-card';
+  card.innerHTML = `<div class="answer-q">You asked: ${escHtml(msg.question)}</div><div class="answer-a">${escHtml(msg.text)}</div>`;
+  af.appendChild(card);
+  while (af.children.length > 2) af.removeChild(af.firstChild);
 }
 
 function handleManagerMessage(msg) {
-  let banner = document.getElementById('mgr-banner');
-  if (banner) banner.remove();
-  banner = document.createElement('div');
-  banner.id = 'mgr-banner';
-  banner.innerHTML = `
-    <span>💬 <strong style="color:#93c5fd">Manager:</strong>&nbsp;${escHtml(msg.text)}</span>
-    <button onclick="this.closest('#mgr-banner').remove()" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:1rem;cursor:pointer;padding:0 4px">✕</button>
-  `;
-  document.body.prepend(banner);
-  clearTimeout(banner._timer);
-  banner._timer = setTimeout(() => banner?.remove(), 20000);
+  let b = document.getElementById('mgr-banner');
+  if (b) b.remove();
+  b = document.createElement('div');
+  b.id = 'mgr-banner';
+  b.innerHTML = `<span>💬 <strong style="color:#93c5fd">Manager:</strong>&nbsp;${escHtml(msg.text)}</span><button onclick="this.closest('#mgr-banner').remove()" style="background:none;border:none;color:rgba(255,255,255,0.3);font-size:1rem;cursor:pointer">✕</button>`;
+  document.body.prepend(b);
+  clearTimeout(b._t);
+  b._t = setTimeout(() => b?.remove(), 20000);
 }
 
 function escHtml(s) {
@@ -905,104 +745,79 @@ function escHtml(s) {
 function setStatus(text, active) {
   statusLbl.textContent = text;
   dot.classList.toggle('active', active);
+  statusPill.classList.toggle('active', active);
 }
 
-// ── TTS playback ─────────────────────────────────────────────────────────────
+// ── TTS ───────────────────────────────────────────────────────────────────────
 
 const ttsCtx = new AudioContext({ sampleRate: 24000 });
 let nextPlayTime = 0;
 
-function playPCM(arrayBuffer) {
+function playPCM(ab) {
   if (ttsCtx.state === 'suspended') ttsCtx.resume();
-  ttsCtx.decodeAudioData(arrayBuffer.slice(0), (buffer) => {
-    const source = ttsCtx.createBufferSource();
-    source.buffer = buffer;
-    source.connect(ttsCtx.destination);
-    const startAt = Math.max(ttsCtx.currentTime + 0.01, nextPlayTime);
-    source.start(startAt);
-    nextPlayTime = startAt + buffer.duration;
-  }, (err) => console.error('[tts] decode error', err));
+  ttsCtx.decodeAudioData(ab.slice(0), (buf) => {
+    const src = ttsCtx.createBufferSource();
+    src.buffer = buf; src.connect(ttsCtx.destination);
+    const at = Math.max(ttsCtx.currentTime + 0.01, nextPlayTime);
+    src.start(at); nextPlayTime = at + buf.duration;
+  }, e => console.error('[tts]', e));
 }
-
 function resetTTSQueue() { nextPlayTime = 0; }
 
-// ── Buttons ──────────────────────────────────────────────────────────────────
+// ── Buttons ───────────────────────────────────────────────────────────────────
 
-// ── Button ripple effect ─────────────────────────────────────────────────────
 function addRipple(btn, e) {
-  const rect = btn.getBoundingClientRect();
-  const size = Math.max(rect.width, rect.height);
-  const x = (e.clientX - rect.left) - size / 2;
-  const y = (e.clientY - rect.top)  - size / 2;
-  const ripple = document.createElement('span');
-  ripple.className = 'ripple';
-  ripple.style.cssText = `width:${size}px;height:${size}px;left:${x}px;top:${y}px`;
-  btn.appendChild(ripple);
-  ripple.addEventListener('animationend', () => ripple.remove());
+  const r = btn.getBoundingClientRect();
+  const sz = Math.max(r.width, r.height);
+  const el = document.createElement('span');
+  el.className = 'ripple';
+  el.style.cssText = `width:${sz}px;height:${sz}px;left:${e.clientX-r.left-sz/2}px;top:${e.clientY-r.top-sz/2}px`;
+  btn.appendChild(el);
+  el.addEventListener('animationend', () => el.remove());
 }
-[btnCapture, btnMic, btnStop].forEach(btn => {
-  btn.addEventListener('click', (e) => addRipple(btn, e));
-});
+[btnCapture, btnMic, btnStop].forEach(b => b.addEventListener('click', e => addRipple(b, e)));
 
 btnCapture.onclick = () => startCapture(true);
-btnMic.onclick     = () => { startCapture(false); };
+btnMic.onclick     = () => startCapture(false);
 btnStop.onclick    = () => stopAll();
 
-// ── V-key: Ask Coach ─────────────────────────────────────────────────────────
+// ── Lead info ─────────────────────────────────────────────────────────────────
 
-const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-let recognition = null;
-let vKeyDown = false;
+document.getElementById('lead-info').addEventListener('blur', () => {
+  if (ws && ws.readyState === WebSocket.OPEN)
+    ws.send(JSON.stringify({ type: 'lead_info', text: document.getElementById('lead-info').value }));
+});
 
-if (SpeechRecognition) {
-  recognition = new SpeechRecognition();
-  recognition.continuous = false;
-  recognition.interimResults = false;
-  recognition.lang = 'en-US';
+// ── V-key: Ask Coach ──────────────────────────────────────────────────────────
 
+const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+let recognition = null, vDown = false;
+
+if (SR) {
+  recognition = new SR();
+  recognition.continuous = false; recognition.interimResults = false; recognition.lang = 'en-US';
   recognition.onresult = (e) => {
-    const question = e.results[0][0].transcript.trim();
-    if (!question || !ws || ws.readyState !== WebSocket.OPEN) return;
-    const leadInfo = document.getElementById('lead-info')?.value || '';
-    ws.send(JSON.stringify({ type: 'query', text: question, lead_info: leadInfo }));
-    setStatus(`● Thinking: "${question}"`, true);
+    const q = e.results[0][0].transcript.trim();
+    if (!q || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(JSON.stringify({ type:'query', text:q, lead_info: document.getElementById('lead-info').value }));
+    setStatus(`Thinking: "${q}"`, true);
   };
-
   recognition.onend = () => {
     document.getElementById('ask-overlay').classList.remove('visible');
-    if (isRunning) setStatus('● Capturing call audio...', true);
-    else setStatus('Idle — capture your call audio to begin', false);
+    if (isRunning) setStatus('Listening...', true);
+    else setStatus('Idle', false);
   };
-
-  recognition.onerror = (e) => {
-    console.warn('[speech]', e.error);
-    document.getElementById('ask-overlay').classList.remove('visible');
-  };
+  recognition.onerror = () => document.getElementById('ask-overlay').classList.remove('visible');
 }
 
-document.addEventListener('keydown', (e) => {
-  if ((e.key === 'v' || e.key === 'V') && !vKeyDown
-      && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
-    vKeyDown = true;
-    if (recognition) {
-      document.getElementById('ask-overlay').classList.add('visible');
-      recognition.start();
-    }
+document.addEventListener('keydown', e => {
+  if ((e.key==='v'||e.key==='V') && !vDown && e.target.tagName!=='INPUT' && e.target.tagName!=='TEXTAREA') {
+    vDown = true;
+    if (recognition) { document.getElementById('ask-overlay').classList.add('visible'); recognition.start(); }
   }
 });
-
-document.addEventListener('keyup', (e) => {
-  if (e.key === 'v' || e.key === 'V') {
-    vKeyDown = false;
-    if (recognition) recognition.stop();
-  }
-});
-
-// Lead info autosave to server on blur
-document.getElementById('lead-info').addEventListener('blur', () => {
-  if (ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({ type: 'lead_info', text: document.getElementById('lead-info').value }));
-  }
+document.addEventListener('keyup', e => {
+  if (e.key==='v'||e.key==='V') { vDown=false; if(recognition) recognition.stop(); }
 });
 </script>
 </body>
