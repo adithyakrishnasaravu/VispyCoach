@@ -39,9 +39,10 @@ Customer voice → Pulse STT → Emotion analysis → Groq coaching tip → Ligh
 |-------|------|
 | STT | Smallest AI Pulse (WebSocket streaming) |
 | TTS | Smallest AI Lightning v3.1 |
-| LLM | Groq — llama-3.1-8b-instant |
+| Emotion AI | Groq — llama-3.1-8b-instant (JSON mode) |
+| Decision Agent | Groq — llama-3.3-70b-versatile (tool-calling) |
 | Backend | FastAPI + WebSockets |
-| Frontend | Vanilla JS, Web Speech API |
+| Frontend | Vanilla JS, Canvas 2D generative orb, Space Grotesk |
 
 ---
 
