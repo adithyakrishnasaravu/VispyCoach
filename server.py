@@ -220,6 +220,112 @@ Your tip is SPOKEN ALOUD into their earpiece. Rules:
 - Reference something the customer actually said.
 - Be specific, calm, actionable. No filler words."""
 
+# ── Emotion agent system prompt ───────────────────────────────────────────────
+EMOTION_AGENT_SYSTEM = """You are an emotion analysis engine for live B2B sales calls.
+
+Analyze the customer's emotional state from the full conversation and respond with ONLY a valid JSON object.
+
+Required JSON schema:
+{
+  "emotions": {
+    "anger": <float 0.0-1.0>,
+    "fear": <float 0.0-1.0>,
+    "sadness": <float 0.0-1.0>,
+    "disgust": <float 0.0-1.0>,
+    "happiness": <float 0.0-1.0>
+  },
+  "stress": <integer 0-100>,
+  "dominant": <exactly one of: "anger", "fear", "sadness", "disgust", "happiness">,
+  "reasoning": <one sentence explaining the emotional state>
+}
+
+Guardrails — you MUST follow these:
+- All emotion values MUST be floats strictly between 0.0 and 1.0
+- stress MUST be an integer between 0 and 100
+- dominant MUST be exactly one of the five emotion keys listed above
+- reasoning MUST be a single sentence under 30 words
+- Base scores on the FULL conversation arc, not just the latest line
+- High-risk signals: competitor mentions, cancellation, legal threats, pricing objections, repeated complaints
+- Implicit frustration counts: short clipped answers, sarcasm, "fine", "whatever", dismissiveness
+- happiness should only be non-zero when the customer is genuinely positive or relieved
+- Return ONLY the JSON object, no other text"""
+
+# ── Decision agent system prompt and tools ────────────────────────────────────
+DECISION_AGENT_SYSTEM = """You are VispyCoach, an autonomous AI agent monitoring a live B2B sales call in real time.
+
+After each customer utterance you receive emotion scores, stress level, and full transcript context.
+You MUST call one or more of the available tools. Calling hold() counts as a valid decision.
+
+Decision rules:
+- fire_coaching_tip → stress > 40%, customer shows frustration or objection, rep needs immediate guidance
+- escalate_to_management → competitor mentioned, cancellation threatened, legal language (lawsuit/lawyer/sue), stress > 70%, deal at serious risk
+- You MAY call BOTH fire_coaching_tip AND escalate_to_management in the same turn
+- hold → call is progressing normally, no tension, or insufficient context to act yet
+
+Tip rules:
+- Exactly ONE sentence, maximum 12 words
+- Must reference something the customer specifically said
+- Direct and actionable — no filler, no "remember to", no generic advice
+- Bad: "Stay calm and acknowledge their concern"
+- Good: "Acknowledge the billing error and offer a same-day refund"
+
+Be selective — do NOT fire tips on every utterance. Only act when it genuinely matters."""
+
+DECISION_AGENT_TOOLS = [
+    {
+        "type": "function",
+        "function": {
+            "name": "fire_coaching_tip",
+            "description": "Send an immediate coaching tip into the rep's earpiece. Use when stress > 40%, customer raises an objection, shows frustration, or the rep needs specific guidance right now.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "tip": {
+                        "type": "string",
+                        "description": "One sentence, max 12 words, specific to what the customer just said. No filler.",
+                    },
+                    "urgency": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                        "description": "low=awareness tip, medium=act soon, high=act immediately",
+                    },
+                },
+                "required": ["tip", "urgency"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "escalate_to_management",
+            "description": "Alert management this call needs attention. Use when: competitor mentioned, customer threatens to cancel/leave, legal language appears, stress > 70%, or deal is at serious risk.",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "reason": {
+                        "type": "string",
+                        "description": "One sentence explaining why, referencing what the customer said.",
+                    },
+                    "severity": {
+                        "type": "string",
+                        "enum": ["warning", "critical"],
+                        "description": "warning=monitor this call, critical=intervene now",
+                    },
+                },
+                "required": ["reason", "severity"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "hold",
+            "description": "Take no action. Call is proceeding normally, emotions are neutral/positive, no intervention needed.",
+            "parameters": {"type": "object", "properties": {}, "required": []},
+        },
+    },
+]
+
 
 def analyze_text(text: str):
     words = re.findall(r"\b\w+\b", text.lower())
@@ -300,6 +406,193 @@ async def get_groq_tip(context_lines: list, emotion: str) -> str:
         return select_template_tip(" ".join(context_lines), emotion)
 
 
+async def analyze_emotion_groq(
+    latest_text: str,
+    transcript: list,
+    lead_info: str,
+    prev_emotions: dict,
+) -> tuple[dict, int, str, str]:
+    """
+    Groq (JSON mode) analyzes customer emotion from full call context.
+    Returns (emotions_dict, stress_pct, dominant, reasoning).
+    Falls back to lexicon analyze_text() on any error or timeout.
+    """
+    VALID_EMOTIONS = {"anger", "fear", "sadness", "disgust", "happiness"}
+
+    def fallback(reason: str):
+        emotions, raw_stress = analyze_text(latest_text)
+        stress_pct = int(min(100, raw_stress * 15))
+        dominant = max(emotions, key=lambda k: emotions[k])
+        print(f"[emotion/groq] fallback ({reason}) → dominant={dominant} stress={stress_pct}%")
+        return emotions, stress_pct, dominant, f"lexicon fallback: {reason}"
+
+    if not GROQ_API_KEY:
+        return fallback("no API key")
+
+    try:
+        context = "\n".join(f"  - {t}" for t in transcript[-10:])
+        prev_str = ", ".join(f"{k}: {v:.2f}" for k, v in prev_emotions.items())
+        user_msg = (
+            f"Lead context: {lead_info or 'Not provided'}\n\n"
+            f"Previous emotion state: {prev_str}\n\n"
+            f"Conversation so far:\n{context}\n\n"
+            f"Latest utterance: \"{latest_text}\"\n\n"
+            f"Analyze the customer's current emotional state."
+        )
+        async with httpx.AsyncClient(timeout=4) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "max_tokens": 150,
+                    "temperature": 0.1,
+                    "response_format": {"type": "json_object"},
+                    "messages": [
+                        {"role": "system", "content": EMOTION_AGENT_SYSTEM},
+                        {"role": "user", "content": user_msg},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            data = json.loads(resp.json()["choices"][0]["message"]["content"])
+
+            # ── Validate and clamp every field ────────────────────────────
+            emotions_raw = data.get("emotions", {})
+            if not isinstance(emotions_raw, dict):
+                return fallback("emotions not a dict")
+
+            emotions = {}
+            for e in VALID_EMOTIONS:
+                val = emotions_raw.get(e, 0.0)
+                if not isinstance(val, (int, float)):
+                    val = 0.0
+                emotions[e] = float(max(0.0, min(1.0, val)))
+
+            if set(emotions.keys()) != VALID_EMOTIONS:
+                return fallback("missing emotion keys")
+
+            stress_raw = data.get("stress", 0)
+            if not isinstance(stress_raw, (int, float)):
+                return fallback("stress not a number")
+            stress_pct = int(max(0, min(100, stress_raw)))
+
+            dominant = data.get("dominant", "")
+            if dominant not in VALID_EMOTIONS:
+                dominant = max(emotions, key=lambda k: emotions[k])
+
+            reasoning = str(data.get("reasoning", ""))[:200]
+
+            print(f"[emotion/groq] dominant={dominant} stress={stress_pct}% | {reasoning}")
+            return emotions, stress_pct, dominant, reasoning
+
+    except asyncio.TimeoutError:
+        return fallback("timeout")
+    except (KeyError, json.JSONDecodeError) as e:
+        return fallback(f"parse error: {e}")
+    except Exception as e:
+        return fallback(f"{type(e).__name__}: {e}")
+
+
+async def run_decision_agent(
+    latest_text: str,
+    transcript: list,
+    emotions: dict,
+    stress_pct: int,
+    dominant: str,
+    emotion_reasoning: str,
+    lead_info: str,
+) -> list[dict]:
+    """
+    Groq tool-calling agent decides what action to take after each utterance.
+    Returns list of {name, args} dicts — one per tool call.
+    Falls back to empty list (no action) on error or timeout.
+    """
+    if not GROQ_API_KEY:
+        return []
+
+    try:
+        context = "\n".join(f"  - {t}" for t in transcript[-10:])
+        emotion_str = " | ".join(f"{k}: {v:.2f}" for k, v in emotions.items())
+        user_msg = (
+            f"Lead context: {lead_info or 'Not provided'}\n\n"
+            f"Emotion scores: {emotion_str}\n"
+            f"Stress level: {stress_pct}% | Dominant: {dominant}\n"
+            f"Emotion reasoning: {emotion_reasoning}\n\n"
+            f"Call transcript (latest at bottom):\n{context}\n\n"
+            f"Latest utterance: \"{latest_text}\"\n\n"
+            f"What action should be taken right now?"
+        )
+        async with httpx.AsyncClient(timeout=6) as client:
+            resp = await client.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {GROQ_API_KEY}"},
+                json={
+                    "model": "llama-3.1-8b-instant",
+                    "max_tokens": 250,
+                    "temperature": 0.2,
+                    "tools": DECISION_AGENT_TOOLS,
+                    "tool_choice": "required",
+                    "messages": [
+                        {"role": "system", "content": DECISION_AGENT_SYSTEM},
+                        {"role": "user", "content": user_msg},
+                    ],
+                },
+            )
+            resp.raise_for_status()
+            tool_calls = resp.json()["choices"][0]["message"].get("tool_calls", [])
+
+            results = []
+            for tc in tool_calls:
+                name = tc["function"]["name"]
+                try:
+                    args = json.loads(tc["function"]["arguments"])
+                except (json.JSONDecodeError, KeyError):
+                    args = {}
+
+                # ── Per-tool argument validation ───────────────────────────
+                if name == "fire_coaching_tip":
+                    tip = str(args.get("tip", "")).strip()
+                    urgency = args.get("urgency", "medium")
+                    if not tip:
+                        print("[agent] empty tip rejected")
+                        continue
+                    if len(tip.split()) > 20:
+                        tip = " ".join(tip.split()[:15])  # hard cap
+                    if urgency not in ("low", "medium", "high"):
+                        urgency = "medium"
+                    args = {"tip": tip, "urgency": urgency}
+
+                elif name == "escalate_to_management":
+                    reason = str(args.get("reason", "")).strip()
+                    severity = args.get("severity", "warning")
+                    if not reason:
+                        print("[agent] empty escalation reason rejected")
+                        continue
+                    if severity not in ("warning", "critical"):
+                        severity = "warning"
+                    args = {"reason": reason, "severity": severity}
+
+                elif name == "hold":
+                    args = {}
+
+                else:
+                    print(f"[agent] unknown tool name '{name}' rejected")
+                    continue
+
+                results.append({"name": name, "args": args})
+                print(f"[agent] → {name}({args})")
+
+            return results
+
+    except asyncio.TimeoutError:
+        print("[agent] decision timeout — no action taken")
+        return []
+    except Exception as e:
+        print(f"[agent] error: {type(e).__name__}: {e} — no action taken")
+        return []
+
+
 async def stream_tts_to_ws(ws: WebSocket, text: str):
     """Call Lightning TTS → get WAV bytes → send to browser."""
     print(f"[tts] requesting: \"{text[:80]}\"")
@@ -331,26 +624,13 @@ async def ws_endpoint(ws: WebSocket):
     audio_q: asyncio.Queue = asyncio.Queue()
     running = {"v": True}
 
-    # State for emotion tracking
+    # State for emotion + agent tracking
     transcript_buffer = deque(maxlen=10)
-    stress_window = deque(maxlen=3)
     smooth_emotions = {e: 0.0 for e in EMOTIONS}
     last_trigger = 0.0
     last_escalation = 0.0
-    COOLDOWN = 10.0
-    THRESHOLD = 1.5
-    ESCALATION_THRESHOLD = 1.5
-    ESCALATION_COOLDOWN = 10.0
-
-    OBJECTION_PATTERNS = [
-        r"\b(not interested|no longer interested)\b",
-        r"\b(too expensive|can.t afford|no budget|out of budget)\b",
-        r"\b(going with|switching to|already using|chose another)\b",
-        r"\b(cancel|cancelling|canceling)\b",
-        r"\b(not the right fit|doesn.t work for us|not a good fit)\b",
-        r"\b(competitor|alternative|other (vendor|option|solution))\b",
-        r"\b(lawsuit|lawyer|sue|legal action)\b",
-    ]
+    COOLDOWN = 10.0           # min seconds between coaching tip actions
+    ESCALATION_COOLDOWN = 10.0  # min seconds between escalation broadcasts
 
     async def receive_from_browser():
         """Receive audio chunks (binary) or control messages (text) from browser."""
@@ -461,68 +741,69 @@ async def ws_endpoint(ws: WebSocket):
                             if not is_final:
                                 continue
 
-                            # Emotion analysis
+                            # ── Groq emotion agent (lexicon fallback on timeout) ──────────
                             transcript_buffer.append(text)
-                            emotions, stress = analyze_text(text)
-                            stress_window.append(stress)
-                            cumulative = sum(stress_window)
+                            emotions, stress_pct, dominant, emotion_reasoning = await analyze_emotion_groq(
+                                text,
+                                list(transcript_buffer),
+                                active_rep["lead_info"],
+                                smooth_emotions,
+                            )
 
+                            # Smooth with EMA so UI doesn't jump
                             for e in EMOTIONS:
                                 smooth_emotions[e] = 0.6 * smooth_emotions[e] + 0.4 * emotions[e]
 
-                            stress_pct = int(min(100, cumulative * 15))
-                            print(f"[emotion] stress={stress:.2f} cumulative={cumulative:.2f} pct={stress_pct}% dominant={max(smooth_emotions, key=lambda k: smooth_emotions[k])}")
                             await ws.send_text(json.dumps({
                                 "type": "emotion",
                                 "emotions": smooth_emotions,
                                 "stress": stress_pct,
                             }))
 
-                            # Coaching trigger
+                            # ── Decision agent (tool-calling) ─────────────────────────
                             now = time.time()
-                            dominant = max(smooth_emotions, key=lambda k: smooth_emotions[k])
-                            since_trigger = now - last_trigger
-                            trigger_ok = (stress >= THRESHOLD or cumulative >= THRESHOLD * 1.5)
-                            cooldown_ok = since_trigger >= COOLDOWN
-                            print(f"[coach] check: trigger={trigger_ok} (stress={stress:.2f}>={THRESHOLD} or cum={cumulative:.2f}>={THRESHOLD*1.5:.2f}) cooldown={cooldown_ok} ({since_trigger:.1f}s ago)")
-                            if trigger_ok and cooldown_ok:
-                                last_trigger = now
-                                context = list(transcript_buffer)[-5:]
-                                print(f"[coach] triggered — stress={stress:.2f}, emotion={dominant}")
+                            if (now - last_trigger) >= COOLDOWN:
+                                actions = await run_decision_agent(
+                                    text,
+                                    list(transcript_buffer),
+                                    smooth_emotions,
+                                    stress_pct,
+                                    dominant,
+                                    emotion_reasoning,
+                                    active_rep["lead_info"],
+                                )
+                                for action in actions:
+                                    name = action["name"]
+                                    args = action["args"]
 
-                                # Get tip (Groq or template)
-                                tip = await get_groq_tip(context, dominant)
-                                print(f"[coach] tip: {tip}")
+                                    if name == "fire_coaching_tip":
+                                        last_trigger = now
+                                        tip = args["tip"]
+                                        urgency = args["urgency"]
+                                        print(f"[coach] tip (urgency={urgency}): {tip}")
+                                        await ws.send_text(json.dumps({"type": "tip", "text": tip}))
+                                        # await stream_tts_to_ws(ws, tip)  # TTS disabled for demo
 
-                                # Send tip text to browser
-                                await ws.send_text(json.dumps({"type": "tip", "text": tip}))
+                                    elif name == "escalate_to_management":
+                                        if management_connections and (now - last_escalation) >= ESCALATION_COOLDOWN:
+                                            last_escalation = now
+                                            severity = args["severity"]
+                                            reason = args["reason"]
+                                            print(f"[escalate] → management (severity={severity}): {reason}")
+                                            await broadcast_to_management({
+                                                "type": "escalation",
+                                                "reason": reason,
+                                                "severity": severity,
+                                                "trigger_text": text,
+                                                "emotion": dominant,
+                                                "stress_pct": stress_pct,
+                                                "transcript": list(transcript_buffer)[-5:],
+                                                "lead_info": active_rep["lead_info"],
+                                                "ts": time.strftime("%H:%M:%S"),
+                                            })
 
-                                # Stream TTS chunks to browser as they arrive
-                                await stream_tts_to_ws(ws, tip)
-
-                            # Escalation to management
-                            objection_hit = next(
-                                (p for p in OBJECTION_PATTERNS if re.search(p, text, re.IGNORECASE)), None
-                            )
-                            if objection_hit:
-                                print(f"[escalate] objection pattern matched: {objection_hit}")
-                            print(f"[escalate] check: mgmt_connections={len(management_connections)} cumulative={cumulative:.2f}>={ESCALATION_THRESHOLD}? objection={bool(objection_hit)} cooldown_ok={(now - last_escalation)>=ESCALATION_COOLDOWN}")
-                            if management_connections and (now - last_escalation) >= ESCALATION_COOLDOWN:
-                                if cumulative >= ESCALATION_THRESHOLD or objection_hit:
-                                    last_escalation = now
-                                    reason = "high stress" if not objection_hit else f"objection detected"
-                                    snippet = list(transcript_buffer)[-5:]
-                                    print(f"[escalate] → management: {reason}")
-                                    await broadcast_to_management({
-                                        "type": "escalation",
-                                        "reason": reason,
-                                        "trigger_text": text,
-                                        "emotion": dominant,
-                                        "stress_pct": int(min(100, cumulative * 15)),
-                                        "transcript": snippet,
-                                        "lead_info": active_rep["lead_info"],
-                                        "ts": time.strftime("%H:%M:%S"),
-                                    })
+                                    elif name == "hold":
+                                        print("[agent] hold — no action needed")
 
                         except Exception as e:
                             print(f"[stt] parse error: {e}")
